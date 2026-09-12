@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Workspace, deriveId } from '../src/index.js';
-import { createDemoWorkspace } from '../src/seed.js';
+import { createDemoWorkspace } from '../src/index.js';
 
 function tempDir(): string {
   return mkdtempSync(join(tmpdir(), 'tributary-ws-'));

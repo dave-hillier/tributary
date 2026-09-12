@@ -1,10 +1,11 @@
 import { app, BrowserWindow, ipcMain } from 'electron';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { StubWorkspaceService } from './workspace-service.js';
+import { WorkspaceService } from './workspace-service.js';
+import type { Document } from '@tributary/api';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const service = new StubWorkspaceService();
+const service = new WorkspaceService();
 
 function createWindow(): void {
   const win = new BrowserWindow({
@@ -25,9 +26,18 @@ function createWindow(): void {
   }
 }
 
-app.whenReady().then(() => {
-  ipcMain.handle('workspace:getDocument', (_evt, id: string) => service.readDocument(id));
+app.whenReady().then(async () => {
+  try {
+    await service.openDemo();
+  } catch (err) {
+    console.error('failed to open demo workspace', err);
+  }
+
+  ipcMain.handle('workspace:getDocument', (_evt, id: string) => service.getDocument(id));
   ipcMain.handle('workspace:listDocuments', () => service.listDocuments());
+  ipcMain.handle('workspace:saveDocument', (_evt, doc: Document, message?: string) => service.saveDocument(doc, message));
+  ipcMain.handle('workspace:history', (_evt, id: string) => service.history(id));
+  ipcMain.handle('workspace:resolveLink', (_evt, target: string) => service.resolveLink(target));
 
   createWindow();
 

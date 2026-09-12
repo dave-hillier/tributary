@@ -1,8 +1,3 @@
-import { mkdirSync, writeFileSync } from 'node:fs';
-import { join, dirname } from 'node:path';
-import { ensureRepo, git } from './git.js';
-import { Workspace } from './index.js';
-
 /** The Stage 1 demo workspace content (grows from docs/examples/slice-0). */
 export const DEMO_FILES: Record<string, string> = {
   'index.md': [
@@ -91,17 +86,3 @@ export const DEMO_FILES: Record<string, string> = {
     '',
   ].join('\n'),
 };
-
-/** Initialize a real Git repo, seed it with the demo files, and open it. */
-export async function createDemoWorkspace(rootPath: string): Promise<Workspace> {
-  mkdirSync(rootPath, { recursive: true });
-  ensureRepo(rootPath);
-  for (const [rel, content] of Object.entries(DEMO_FILES)) {
-    const abs = join(rootPath, rel);
-    mkdirSync(dirname(abs), { recursive: true });
-    writeFileSync(abs, content, 'utf8');
-  }
-  git(rootPath, ['add', '-A']);
-  git(rootPath, ['commit', '-q', '-m', 'seed demo workspace']);
-  return Workspace.open(rootPath);
-}

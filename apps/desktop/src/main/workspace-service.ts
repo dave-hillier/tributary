@@ -1,36 +1,54 @@
-import { readFile } from 'node:fs/promises';
-import { join, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { parseMarkdown } from '@tributary/markdown';
-import type { Document, WorkspaceCapabilities } from '@tributary/api';
-
-const here = dirname(fileURLToPath(import.meta.url));
-// src/main/ and dist/main/ are both three levels below apps/desktop.
-const REPO_ROOT = join(here, '../../../../');
-
-/** demo fixture docs: id -> workspace-relative path under docs/examples/slice-0 */
-const DOCS: Record<string, string> = {
-  index: 'index.md',
-  hello: 'notes/hello.md',
-  'task-1': 'items/task-1.md',
-};
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { Workspace, createDemoWorkspace, type CommitInfo } from '@tributary/workspace';
+import { buildIndex, type WorkspaceIndex } from '@tributary/index';
+import type { Document, DocumentId } from '@tributary/api';
 
 /**
- * Stage 0 stub workspace service: reads the demo fixture and parses it with the
- * real parser, returning a typed Document. Replaced by the Git-backed service in
- * Stage 1.
+ * Shell-side workspace service: owns the open workspace and its derived index,
+ * exposed to the renderer over IPC. Git remains the durable truth (arch §5.2).
  */
-export class StubWorkspaceService implements WorkspaceCapabilities {
-  async readDocument(id: string): Promise<Document> {
-    const rel = DOCS[id] ?? (id.endsWith('.md') ? id : id + '.md');
-    const abs = join(REPO_ROOT, 'docs/examples/slice-0', rel);
-    const source = await readFile(abs, 'utf8');
-    return parseMarkdown(source, { path: rel });
+export class WorkspaceService {
+  private workspace: Workspace | null = null;
+  private index: WorkspaceIndex | null = null;
+
+  /** Open a freshly-seeded demo workspace (ephemeral, for the slice). */
+  async openDemo(): Promise<void> {
+    const root = mkdtempSync(join(tmpdir(), 'tributary-demo-'));
+    const workspace = await createDemoWorkspace(root);
+    this.workspace = workspace;
+    this.index = buildIndex(workspace.documents);
   }
 
-  async listDocuments(): Promise<Document[]> {
-    const out: Document[] = [];
-    for (const id of Object.keys(DOCS)) out.push(await this.readDocument(id));
-    return out;
+  async open(rootPath: string): Promise<void> {
+    const workspace = await Workspace.open(rootPath);
+    this.workspace = workspace;
+    this.index = buildIndex(workspace.documents);
+  }
+
+  getDocument(id: DocumentId): Document | null {
+    return this.workspace?.getDocument(id) ?? null;
+  }
+
+  listDocuments(): Document[] {
+    return this.workspace?.documents ?? [];
+  }
+
+  resolveLink(target: string): Document | null {
+    return this.index?.resolve(target) ?? null;
+  }
+
+  async saveDocument(doc: Document, message?: string): Promise<{ commit: string }> {
+    if (!this.workspace) throw new Error('Workspace not open');
+    const result = await this.workspace.save(doc, message);
+    // Rebuild derived state from Git after the checkpoint.
+    this.workspace = await Workspace.open(this.workspace.ref.rootPath);
+    this.index = buildIndex(this.workspace.documents);
+    return result;
+  }
+
+  async history(id: DocumentId): Promise<CommitInfo[]> {
+    return this.workspace?.history(id) ?? [];
   }
 }

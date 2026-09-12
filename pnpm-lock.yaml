@@ -16,12 +16,18 @@ importers:
       '@tributary/components':
         specifier: workspace:*
         version: link:../../packages/ui/components
+      '@tributary/index':
+        specifier: workspace:*
+        version: link:../../packages/core/index
       '@tributary/markdown':
         specifier: workspace:*
         version: link:../../packages/core/markdown
       '@tributary/render':
         specifier: workspace:*
         version: link:../../packages/core/render
+      '@tributary/workspace':
+        specifier: workspace:*
+        version: link:../../packages/core/workspace
       react:
         specifier: ^18.3.1
         version: 18.3.1

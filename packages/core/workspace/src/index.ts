@@ -2,7 +2,8 @@ import { readFileSync, writeFileSync, readdirSync, mkdirSync } from 'node:fs';
 import { join, relative, dirname, sep } from 'node:path';
 import { parseMarkdown, stringifyMarkdown } from '@tributary/markdown';
 import type { Document, DocumentId, WorkspaceRef } from '@tributary/api';
-import { git, isGitRepo } from './git.js';
+import { git, isGitRepo, ensureRepo } from './git.js';
+import { DEMO_FILES } from './seed.js';
 
 export interface DuplicateIdReport {
   id: DocumentId;
@@ -105,5 +106,21 @@ export class Workspace {
 }
 
 export async function openWorkspace(rootPath: string): Promise<Workspace> {
+  return Workspace.open(rootPath);
+}
+
+export { DEMO_FILES } from './seed.js';
+
+/** Initialize a real Git repo, seed it with the demo files, and open it. */
+export async function createDemoWorkspace(rootPath: string): Promise<Workspace> {
+  mkdirSync(rootPath, { recursive: true });
+  ensureRepo(rootPath);
+  for (const [rel, content] of Object.entries(DEMO_FILES)) {
+    const abs = join(rootPath, rel);
+    mkdirSync(dirname(abs), { recursive: true });
+    writeFileSync(abs, content, 'utf8');
+  }
+  git(rootPath, ['add', '-A']);
+  git(rootPath, ['commit', '-q', '-m', 'seed demo workspace']);
   return Workspace.open(rootPath);
 }

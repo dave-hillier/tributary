@@ -1,37 +1,50 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { join, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { createElement } from 'react';
 import { renderToString } from 'react-dom/server';
-import { parseMarkdown } from '@tributary/markdown';
+import { createDemoWorkspace } from '@tributary/workspace';
+import { buildIndex } from '@tributary/index';
 import { DocumentView } from '@tributary/components';
+import { WorkspaceService } from '../src/main/workspace-service.js';
 
-const here = dirname(fileURLToPath(import.meta.url));
-const FIXTURES = join(here, '../../../docs/examples/slice-0');
+describe('Stage 1 slice: the Git round-trip', () => {
+  it('open -> index -> render -> edit -> checkpoint -> history -> rebuild', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'tributary-e2e-'));
+    try {
+      await createDemoWorkspace(root);
+      const service = new WorkspaceService();
+      await service.open(root);
 
-describe('slice-0 end-to-end render (fixture -> parser -> renderer -> HTML)', () => {
-  it('renders index.md with links, transclusion and a replot block', () => {
-    const source = readFileSync(join(FIXTURES, 'index.md'), 'utf8');
-    const doc = parseMarkdown(source, { path: 'index.md' });
+      // Home document parses and renders end-to-end.
+      const home = service.getDocument('index');
+      expect(home).toBeTruthy();
+      const html = renderToString(createElement(DocumentView, { document: home! }));
+      expect(html).toContain('data-replot');
+      expect(html).toContain('data-transclusion');
+      expect(html).toContain('notes/hello');
 
-    expect(doc.frontmatter.kind).toBe('index');
-    expect(doc.frontmatter.title).toBe('Tributary Demo');
+      // Wiki-link targets resolve against the derived index.
+      expect(service.resolveLink('items/task-1')?.id).toBe('task-1');
+      expect(service.resolveLink('notes/hello')?.id).toBe('notes/hello');
 
-    const html = renderToString(createElement(DocumentView, { document: doc }));
-    expect(html).toContain('Tributary Demo');
-    expect(html).toContain('data-replot');
-    expect(html).toContain('data-transclusion');
-    expect(html).toContain('notes/hello');
-  });
+      // Edit -> checkpoint -> history.
+      const hello = service.getDocument('notes/hello')!;
+      const before = (await service.history('notes/hello')).length;
+      hello.source = hello.source!.replace('A simple wiki document', 'A simple wiki document (edited)');
+      const { commit } = await service.saveDocument(hello, 'edit hello');
+      expect(commit).toMatch(/^[0-9a-f]{40}$/);
+      const hist = await service.history('notes/hello');
+      expect(hist.length).toBe(before + 1);
+      expect(hist[hist.length - 1].message).toBe('edit hello');
 
-  it('renders a work item document from its frontmatter', () => {
-    const source = readFileSync(join(FIXTURES, 'items/task-1.md'), 'utf8');
-    const doc = parseMarkdown(source, { path: 'items/task-1.md' });
-    expect(doc.frontmatter.kind).toBe('work-item');
-    expect(doc.frontmatter.status).toBe('todo');
-
-    const html = renderToString(createElement(DocumentView, { document: doc }));
-    expect(html).toContain('Ship the demo');
+      // Derived state is disposable: rebuilding the index reproduces resolution.
+      const rebuilt = buildIndex(service.listDocuments());
+      expect(rebuilt.resolve('items/task-1')?.id).toBe('task-1');
+      expect(rebuilt.resolve('notes/hello')?.id).toBe('notes/hello');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
