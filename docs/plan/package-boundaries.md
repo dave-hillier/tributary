@@ -44,9 +44,9 @@ trees. `apps/desktop` is created at Stage 0.4 and does not exist yet.
 | `@tributary/render`| AST → React registry (safe extension point) (§5.1, §11)        | `api`, `markdown`               | never     |
 | `@tributary/workspace`| Workspace service: one repo per workspace, Git adapter, checkpoints (§5.2) | `api`                  | never     |
 | `@tributary/index` | SQLite + FTS5 derived projections (§5.3)                        | `api`                            | never     |
-| `@tributary/notebook`| NotebookHost, dependency graph, invalidation (§6)             | `api`, `markdown`               | never     |
+| `@tributary/notebook`| NotebookHost, cell compiler (esbuild), dependency graph, invalidation (§6, ADR-004) | `api`, `markdown` | never |
 | `@tributary/jobs`  | Revision-pinned jobs in isolated worktrees/workers (§5.5, §7)   | `workspace`, `index`, `markdown` | never     |
-| `@tributary/components` | React block registry, work-item views, Replot bridge           | `render`, `notebook`            | no (React only) |
+| `@tributary/components` | React block registry, work-item views, app component API (Replot/WorkItem/Assignee) for cells | `render`, `notebook` | no (React only) |
 | `app-desktop` (apps/desktop) | Electron shell, IPC/typed API over local workspace service (§5.1, §5.2) | all core + components | yes |
 
 ## Dependency rules
@@ -61,6 +61,12 @@ trees. `apps/desktop` is created at Stage 0.4 and does not exist yet.
   internals; it renders values/specifications, it does not own the repository.
 - Shell-flavoured logic (IPC wiring, Electron lifecycle, SQLite native binding)
   lives only in `app-desktop`.
+
+**Cells (ADR-004):** executable fenced blocks are a single `cell` node with
+`lang` in {js,ts,jsx,tsx}. Cells are compiled with esbuild in a worker/process
+and may `import` from `@tributary/components` (component API) and
+`@tributary/api` (capabilities: workspace/git/query). This supersedes the
+earlier `replotBlock`/`cellBlock` split.
 
 ## Naming & versioning
 

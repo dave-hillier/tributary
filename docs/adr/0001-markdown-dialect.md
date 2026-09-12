@@ -3,6 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-09-12
 - **Source:** architecture §4 (Canonical document format), §4.1 (Conservative Markdown dialect)
+- **Superseded by:** ADR-004 for the executable-cell block model (item 4 below)
 
 ## Context
 
@@ -12,18 +13,18 @@ AST, how it round-trips, and how unknown syntax degrades.
 
 ## Decision
 
-**v0.1 dialect = CommonMark + GFM, plus four additive extensions**, parsed by
+**v0.1 dialect = CommonMark + GFM, plus additive extensions**, parsed by
 `unified` + `remark-parse` + `remark-gfm` with two custom plugins, and
-serialized by `remark-stringify` with four custom handlers. The extensions are:
+serialized by `remark-stringify` with custom handlers. The extensions are:
 
 1. **YAML frontmatter** — a leading `--- ... ---` block, parsed with the
    `yaml` package into `DocumentFrontmatter` (open-ended, known keys typed).
 2. **Wiki links** — `[[target]]` and `[[target|alias]]` → `wikiLink` node.
 3. **Transclusion** — `![[target]]` and `![[target#heading]]` → `transclusion` node.
-4. **Typed fenced blocks** — ```replot``` → `replotBlock`; a fence with
-   `cell=name` meta (e.g. ```js cell=answer```) → `cellBlock`. Every
-   other fence — including a plain ```js``` without `cell=` — stays an
-   ordinary source-only `code` node. Execution is never inferred from language.
+4. **Executable cells** — a fenced block marked as a cell (language in
+   `js`/`ts`/`jsx`/`tsx`) → a single `cell` node carrying `lang`. This
+   **supersedes** the earlier `replotBlock`/`cellBlock` split — see ADR-004.
+   Every unmarked fence stays an ordinary source-only `code` node.
 
 The custom nodes are declared and registered into mdast's content maps in
 `@tributary/api` (single source of truth), so parser and renderer share one
@@ -46,6 +47,7 @@ remain `code` nodes and round-trip).
 ## Consequences
 
 - The format stays readable in any plain Markdown tool (extensions are additive).
-- No MDX/JSX: Markdown remains data, not a component model.
+- No document-level MDX/JSX: Markdown is never compiled to JSX. TSX is
+  allowed **inside executable cells**, where it is the cell's language (ADR-004).
 - Wiki-link/transclusion targets are workspace-relative paths or document ids;
   resolution against the index is deferred to Stage 1/2.

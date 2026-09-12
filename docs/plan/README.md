@@ -85,8 +85,8 @@ product rather than being written once up front.
 ## Decision records
 
 The architecture's immediate next steps (arch §14, step 3) call for
-ADR-001 (Markdown dialect), ADR-002 (notebook runtime, after the Stage 0
-spike) and ADR-003 (local-first sync/checkpoint).
+ADR-001 (Markdown dialect), ADR-002 (notebook runtime), ADR-003
+(local-first sync/checkpoint) and ADR-004 (TSX-native executable cell model).
 ADRs live in `docs/adr/`. ADR-002 is an exit deliverable of Stage 0; the others
 are written as their decisions are settled.
 

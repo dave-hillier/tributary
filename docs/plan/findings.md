@@ -118,6 +118,17 @@ land.
 **Disposition:** prefer direct implementation for tightly-coupled vertical
 slices; use subagents only for clearly separable, low-coupling work.
 
+### 10. Medium — Dialect drift: `replotBlock` already implemented, now superseded
+
+ADR-004 collapses `replotBlock`/`cellBlock` into a single `cell` node, with
+`tsx` as the native rich-output language. The current code
+(`@tributary/api`, `markdown`, `render`, `components`, demo fixtures)
+still ships `replotBlock` and `cellBlock`, and the Stage 0 notebook spike
+uses `with`+Proxy dependency discovery rather than a compiled-JS-AST extractor.
+
+**Disposition:** migrate the block nodes to one `cell` node, adopt esbuild for
+cell compilation, and move dependency extraction onto the compiled AST (Stage 3).
+
 ## Decisions needed
 
 1. **Round-trip fidelity:** source-preserving vs canonical (finding 1).
@@ -126,6 +137,10 @@ slices; use subagents only for clearly separable, low-coupling work.
 3. **Concurrency for v1:** base-blob + three-way merge now vs later (finding 3).
 4. **Native SQLite in Electron:** `@electron/rebuild` vs worker process
    (finding 4).
+5. **Executable-cell marker:** explicit marker vs inferred-from-language
+   (ADR-004, open question 1).
+6. **Cell trust posture:** permissive `@tributary/api` capabilities in v1 vs
+   §8 sandboxing now (ADR-004, open question 2).
 
 ## What holds up
 

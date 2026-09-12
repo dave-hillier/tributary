@@ -1,45 +1,109 @@
-# Stage 3 — Replot + Notebook-Like Reactive Cells
+# Stage 3 — Executable Cells: TSX-Native Reactive Documents
 
-**Source:** architecture §10 "Slice 3".
+**Source:** architecture §10 "Slice 3", ADR-004.
 **Outcome:** Add computational documents while retaining Markdown-first
-authoring.
+authoring — fenced blocks are notebook cells, and TSX is the native language
+for rich rendered output.
 
 ## Goal
 
-Introduce explicit executable fence syntax and optional stable cell IDs,
-compile cells into a dependency graph with inline error surfacing, expose a
-narrow workspace capability API to cells, and render cell values through React
-with Replot consuming value/spec data without owning the DOM.
+Treat every `js`/`ts`/`jsx`/`tsx` fenced block as a first-class executable
+cell (one cell model, not a special "Replot block"), compile cells into a
+dependency graph, and render cell outputs as React. Replot is just a React
+component from the app API, not a distinct format block.
+
+## Cell model
+
+````markdown
+# Deployment status
+
+```ts
+const deployments = await api.deployments.list()
+```
+
+```tsx
+<Replot>
+  <BarY data={deployments} x="service" y="count" />
+</Replot>
+```
+````
+
+- `js`, `ts`, `jsx`, `tsx` are variants of the **same cell model**.
+- Ordinary React components (not only Replot) are allowed in `tsx` cells.
+- The **final expression** of a cell is its output; earlier declarations become
+  available to downstream cells (notebook ergonomics, no `display()` required).
+
+## Pipeline
+
+```text
+Markdown
+  -> mdast
+  -> fenced executable cell
+  -> JS  : parse
+     TS  : strip/compile types
+     JSX : JSX transform
+     TSX : TS + JSX transform
+  -> JavaScript AST
+  -> dependency extraction
+  -> reactive cell runtime
+  -> value / ReactElement
+  -> React
+```
+
+- Compile cells with **esbuild** (`jsx: "automatic"`, `jsxImportSource:
+  "react"`).
+- Compilation runs in a **worker/process**, not the React renderer.
+
+## Output semantics
+
+| cell evaluates to | rendered as              |
+|-------------------|--------------------------|
+| string / number   | Inspector / default      |
+| array / object    | Inspector / table        |
+| ReactElement      | React                    |
+| Promise           | awaited, then the above  |
+| undefined         | no output                |
 
 ## Work breakdown
 
-### 3.1 Executable cell syntax (`@tributary/markdown`)
-- Explicit executable fences (`js cell=name`, `query`, etc.) vs source-only
-  code fences (§4.3); execution is never inferred from the language.
-- Optional stable local cell IDs (only where outputs/dependencies need block
-  identity — §3.1).
+### 3.1 One executable cell block (`@tributary/markdown`, `api`)
+- Replace `replotBlock`/`cellBlock` with a single `cell` block carrying
+  `lang` in {js,ts,jsx,tsx} (migration of current code; see findings.md).
+- Settle how executability is marked (ADR-004 open question).
 
-### 3.2 Dependency graph & invalidation (`@tributary/notebook`)
-- Compile cells into a dependency graph; recompute only dependants on change.
-- Surface execution errors inline.
-- Document-level disposal; dispose stale async work (§13).
+### 3.2 Cell compiler (`@tributary/notebook`, or new `@tributary/cell`)
+- esbuild transform (TS/TSX → JS, JSX → `createElement` via automatic
+  runtime); rewrite the final expression into a `return`.
 
-### 3.3 Capability API (`@tributary/api`, `notebook`)
-- Narrow, explicit capability API to cells: read current document, query index,
-  fetch workspace services (§8, §6.1). Arbitrary network/filesystem access
-  denied unless explicitly granted.
+### 3.3 Dependency graph & invalidation (`@tributary/notebook`)
+- Extract dependencies from the compiled JS AST (not the `with`+Proxy
+  discovery used by the Stage 0 spike).
+- Recompute only dependants; surface errors inline; dispose stale async work.
 
-### 3.4 Rendering & Replot (`@tributary/render`, `components`)
-- Render cell values through React.
-- Replot consumes `value/spec` data without owning the DOM (§6.1).
+### 3.4 Capability & component API (`@tributary/api`, `components`)
+- `import { workspace, git, query } from "@tributary/api"` — permissive for
+  v1 (workspaces are trusted; sandboxing deferred to Stage 7).
+- `import { WorkItem, Assignee, Replot } from "@tributary/components"` — the
+  stable app component API.
+
+### 3.5 Rendering (`@tributary/render`, `components`)
+- Render cell outputs per the output-semantics table; Replot consumes data
+  without owning the DOM (§6.1).
+
+## Open decisions
+
+- Executable marker: explicit vs inferred-from-language (ADR-004).
+- Trust posture: permissive v1 vs §8 sandboxing.
+- Compilation location: worker vs separate process.
 
 ## Exit criteria
 
-- [ ] A Markdown document defines data in one cell and renders a dependent
-      Replot block later in the page.
-- [ ] Editing an upstream cell recomputes only dependants (dependency tests,
-      stale async disposed).
+- [ ] A cell defines data and a downstream `tsx` cell renders it reactively.
+- [ ] Editing an upstream cell recomputes only dependants (stale async disposed).
 - [ ] Plain wiki docs incur **no notebook runtime cost**.
-- [ ] Execution stays behind the `NotebookHost`/capability boundary.
+- [ ] A `tsx` cell renders an app component (`Replot`, `WorkItem`) from the
+      final expression with no `display()` call.
+- [ ] Execution stays behind `NotebookHost` + the capability boundary.
 
-**Computational documents, still `.md`.**
+**Computational documents, still `.md` — TSX lives inside cells, never at the
+document level.**
