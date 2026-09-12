@@ -16,6 +16,7 @@ interface TributaryApi {
   saveDocument: (doc: Document, message?: string) => Promise<{ commit: string }>;
   history: (id: string) => Promise<HistoryEntry[]>;
   resolveLink: (target: string) => Promise<Document | null>;
+  search: (query: string) => Promise<Document[]>;
 }
 
 declare global {
@@ -30,6 +31,8 @@ function App(): JSX.Element {
   const [source, setSource] = useState('');
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [savedMsg, setSavedMsg] = useState('');
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState<Document[]>([]);
 
   const load = async (id: string): Promise<void> => {
     const d = await window.tributary.getDocument(id);
@@ -56,6 +59,14 @@ function App(): JSX.Element {
     await load(current.id);
   };
 
+  const onSearch = async (): Promise<void> => {
+    if (!query.trim()) {
+      setResults([]);
+      return;
+    }
+    setResults(await window.tributary.search(query.trim()));
+  };
+
   const onDocClick = (e: MouseEvent<HTMLDivElement>): void => {
     const el = (e.target as HTMLElement).closest('a.wiki-link') as HTMLAnchorElement | null;
     if (!el) return;
@@ -70,6 +81,26 @@ function App(): JSX.Element {
 
   return (
     <div>
+      <div>
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') void onSearch();
+          }}
+          placeholder="Search workspace…"
+        />
+        <button onClick={() => void onSearch()}>Search</button>
+        {results.length > 0 ? (
+          <ul>
+            {results.map((d) => (
+              <li key={d.id}>
+                <button onClick={() => void load(d.id)}>{d.frontmatter.title ?? d.id}</button>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </div>
       <nav>
         {docs.map((d) => (
           <button key={d.id} onClick={() => void load(d.id)}>

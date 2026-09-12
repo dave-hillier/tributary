@@ -76,3 +76,5 @@ export function buildIndex(documents: Document[]): WorkspaceIndex {
 
   return { documents, byId, byPath, links, backlinks, workItems, resolve };
 }
+
+export { SqliteIndex } from './sqlite.js';

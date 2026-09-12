@@ -14,6 +14,7 @@ const api = {
     ipcRenderer.invoke('workspace:saveDocument', doc, message),
   history: (id: string): Promise<HistoryEntry[]> => ipcRenderer.invoke('workspace:history', id),
   resolveLink: (target: string): Promise<Document | null> => ipcRenderer.invoke('workspace:resolveLink', target),
+  search: (query: string): Promise<Document[]> => ipcRenderer.invoke('workspace:search', query),
 };
 
 contextBridge.exposeInMainWorld('tributary', api);

@@ -24,7 +24,7 @@ function listMarkdownFiles(rootPath: string): string[] {
   const out: string[] = [];
   const walk = (dir: string): void => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      if (entry.name === '.git' || entry.name === 'node_modules' || entry.name === 'dist') continue;
+      if (entry.name === '.git' || entry.name === '.tributary' || entry.name === 'node_modules' || entry.name === 'dist') continue;
       const p = join(dir, entry.name);
       if (entry.isDirectory()) walk(p);
       else if (entry.name.endsWith('.md')) out.push(p);

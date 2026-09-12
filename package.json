@@ -15,5 +15,12 @@
     "lint": "pnpm -r run lint",
     "dev": "pnpm run -r --parallel --filter='./{packages,apps}/*' dev",
     "clean": "find . -name node_modules -type d -prune -exec rm -rf {} + && find . -name 'dist' -type d -prune -exec rm -rf {} +"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "better-sqlite3",
+      "electron",
+      "esbuild"
+    ]
   }
 }

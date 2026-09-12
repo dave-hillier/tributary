@@ -39,6 +39,10 @@ describe('Stage 1 slice: the Git round-trip', () => {
       expect(hist.length).toBe(before + 1);
       expect(hist[hist.length - 1].message).toBe('edit hello');
 
+      // Full-text search over the SQLite+FTS5 index.
+      expect(service.search('workspace').map((d) => d.id)).toContain('index');
+      expect(service.search('Ship').map((d) => d.id)).toContain('task-1');
+
       // Derived state is disposable: rebuilding the index reproduces resolution.
       const rebuilt = buildIndex(service.listDocuments());
       expect(rebuilt.resolve('items/task-1')?.id).toBe('task-1');
