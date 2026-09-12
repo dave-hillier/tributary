@@ -156,6 +156,9 @@ importers:
       '@tributary/api':
         specifier: workspace:*
         version: link:../api
+      '@tributary/markdown':
+        specifier: workspace:*
+        version: link:../markdown
     devDependencies:
       '@types/node':
         specifier: ^22.10.2

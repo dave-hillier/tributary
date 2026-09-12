@@ -1,0 +1,107 @@
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { ensureRepo, git } from './git.js';
+import { Workspace } from './index.js';
+
+/** The Stage 1 demo workspace content (grows from docs/examples/slice-0). */
+export const DEMO_FILES: Record<string, string> = {
+  'index.md': [
+    '---',
+    'title: Tributary Demo',
+    'kind: index',
+    '---',
+    '',
+    '# Tributary Demo',
+    '',
+    'Welcome to the demo workspace. Links plus one embedded chart.',
+    '',
+    '- [[notes/hello|Hello]]',
+    '- [[notes/other|Other notes]]',
+    '- [[items/task-1|Ship the demo]]',
+    '- [[items/task-2|Write tests]]',
+    '',
+    '![[notes/hello]]',
+    '',
+    '\u0060\u0060\u0060replot',
+    '{"type": "line", "data": [[0, 0], [1, 2], [2, 1]]}',
+    '\u0060\u0060\u0060',
+    '',
+  ].join('\n'),
+  'notes/hello.md': [
+    '---',
+    'title: Hello',
+    'kind: wiki',
+    '---',
+    '',
+    '# Hello',
+    '',
+    'A simple wiki document that links to a [[items/task-1|work item]].',
+    '',
+    '\u0060\u0060\u0060js',
+    '// A source-only code fence (no cell= meta): never executed.',
+    'const x = 1;',
+    '\u0060\u0060\u0060',
+    '',
+    '\u0060\u0060\u0060js cell=answer',
+    'answer = 6 * 7;',
+    '\u0060\u0060\u0060',
+    '',
+  ].join('\n'),
+  'notes/other.md': [
+    '---',
+    'title: Other notes',
+    'kind: wiki',
+    '---',
+    '',
+    '# Other notes',
+    '',
+    'A second wiki document, to give the link graph another edge.',
+    '',
+  ].join('\n'),
+  'items/task-1.md': [
+    '---',
+    'id: task-1',
+    'title: Ship the demo',
+    'kind: work-item',
+    'status: todo',
+    'assignee: alice',
+    'priority: high',
+    'project: demo',
+    '---',
+    '',
+    '# Ship the demo',
+    '',
+    'A work item is just a Markdown document with typed frontmatter.',
+    '',
+  ].join('\n'),
+  'items/task-2.md': [
+    '---',
+    'id: task-2',
+    'title: Write tests',
+    'kind: work-item',
+    'status: done',
+    'assignee: bob',
+    'priority: medium',
+    'project: demo',
+    '---',
+    '',
+    '# Write tests',
+    '',
+    'Another work item for the board projection.',
+    '',
+  ].join('\n'),
+};
+
+/** Initialize a real Git repo, seed it with the demo files, and open it. */
+export async function createDemoWorkspace(rootPath: string): Promise<Workspace> {
+  mkdirSync(rootPath, { recursive: true });
+  ensureRepo(rootPath);
+  for (const [rel, content] of Object.entries(DEMO_FILES)) {
+    const abs = join(rootPath, rel);
+    mkdirSync(dirname(abs), { recursive: true });
+    writeFileSync(abs, content, 'utf8');
+  }
+  git(rootPath, ['add', '-A']);
+  git(rootPath, ['commit', '-q', '-m', 'seed demo workspace']);
+  return Workspace.open(rootPath);
+}
