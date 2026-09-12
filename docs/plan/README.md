@@ -72,13 +72,21 @@ Each stage document lists explicit exit criteria. A stage is "done" when:
 - The persisted document format is unchanged from the architecture's dialect.
 - Core packages remain shell-independent (no Electron import in non-shell code).
 
+**Demo fixtures:** each stage's acceptance fixture lives under
+`docs/examples/<stage>/` and is an incremental slice of the single canonical
+demo workspace the architecture defines (arch §14.4) — it grows with the
+product rather than being written once up front.
+
 ## Decision records
 
-Architecture §14.3 calls for ADR-001 (Markdown dialect), ADR-002 (notebook
-runtime, after the Stage 0 spike) and ADR-003 (local-first sync/checkpoint).
+The architecture's immediate next steps (arch §14, step 3) call for
+ADR-001 (Markdown dialect), ADR-002 (notebook runtime, after the Stage 0
+spike) and ADR-003 (local-first sync/checkpoint).
 ADRs live in `docs/adr/`. ADR-002 is an exit deliverable of Stage 0; the others
 are written as their decisions are settled.
 
 ## Status
 
-Draft v0.1 — scaffold in place, no stages started.
+Draft v0.1 — scaffold in place, no stages started. ADR files
+(`docs/adr/`) and demo fixtures (`docs/examples/`) do not exist yet; they
+are created as their stages complete them.

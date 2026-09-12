@@ -13,7 +13,7 @@
     "build": "pnpm -r run build",
     "test": "pnpm -r run test",
     "lint": "pnpm -r run lint",
-    "dev": "pnpm run -r --parallel --filter='./packages/*' dev",
+    "dev": "pnpm run -r --parallel --filter='./{packages,apps}/*' dev",
     "clean": "find . -name node_modules -type d -prune -exec rm -rf {} + && find . -name 'dist' -type d -prune -exec rm -rf {} +"
   }
 }

@@ -10,7 +10,7 @@ touch the desktop boundary.
 ```
 tributary/
 ├── package.json              # root: scripts, engines (node >= 22)
-├── pnpm-workspace.yaml       # packages/*
+├── pnpm-workspace.yaml       # packages/* + apps/*
 ├── tsconfig.base.json        # shared strict TS compiler options
 ├── .gitignore / .editorconfig
 ├── docs/                     # architecture + plan + ADRs + demo workspace spec
@@ -22,7 +22,7 @@ tributary/
     │   ├── markdown/         # parser: AST, frontmatter, wiki links, fences, round-trip
     │   ├── render/           # AST -> React component registry
     │   ├── api/              # typed document/workspace model & shared types
-    │   └── workspace/        # local workspace service: Git adapter, checkpoint
+    │   ├── workspace/        # local workspace service: Git adapter, checkpoint
     │   └── index/            # SQLite + FTS5 derived index
     ├── runtime/
     │   ├── notebook/         # NotebookHost abstraction + runtime adapter
@@ -30,6 +30,10 @@ tributary/
     └── ui/
         └── components/       # React block registry, work-item views, Replot bridge
 ```
+
+Both `packages/*` and `apps/*` are pnpm workspace members from the scaffold,
+so solution-wide root scripts (`build`, `test`, `lint`, `dev`) cover both
+trees. `apps/desktop` is created at Stage 0.4 and does not exist yet.
 
 ## Package map
 

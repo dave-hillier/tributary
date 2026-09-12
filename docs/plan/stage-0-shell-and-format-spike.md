@@ -51,7 +51,9 @@ the runtime choice with ADR-002.
 
 A sample repository under `docs/examples/slice-0/`:
 `index.md`, one wiki doc, one work item, one `replot` block, one `js cell`
-fence rendered as source-only until Stage 3. This is the acceptance fixture.
+fence rendered as source-only until Stage 3. This is the Stage 0 slice of
+the canonical demo workspace (arch §14.4); later stages extend the same
+fixture tree.
 
 ## Exit criteria
 
