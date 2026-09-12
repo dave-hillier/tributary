@@ -79,6 +79,9 @@ importers:
         specifier: workspace:*
         version: link:../api
     devDependencies:
+      '@tributary/markdown':
+        specifier: workspace:*
+        version: link:../markdown
       '@types/node':
         specifier: ^22.10.2
         version: 22.20.2
