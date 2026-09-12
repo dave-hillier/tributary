@@ -16,6 +16,7 @@ authoritative for *why it is shaped this way*.
 docs/plan/
 ├── README.md                  <- this index + sequencing summary
 ├── package-boundaries.md      <- monorepo layout: packages, deps, build rules
+├── findings.md                <- critical review: gaps, risks, decisions needed
 ├── stage-0-shell-and-format-spike.md
 ├── stage-1-git-backed-workspace.md
 ├── stage-2-transclusion-and-blocks.md
@@ -29,6 +30,10 @@ docs/plan/
 [`package-boundaries.md`](./package-boundaries.md) is the map between the
 architecture's package boundaries (§5) and concrete workspace packages. Read it
 before touching any code — every stage assumes this layout.
+
+[`findings.md`](./findings.md) is the living critical-review log: known gaps,
+risks and open decisions against the work committed so far. Check it before
+claiming a stage is done, and update it when a finding is resolved.
 
 ## Sequencing summary
 
@@ -87,9 +92,10 @@ are written as their decisions are settled.
 
 ## Status
 
-Stage 0 (Shell + format/runtime spike) complete: monorepo scaffold, the
-`@tributary/api` contract, the Markdown dialect parser (`@tributary/markdown`),
-the React renderer (`@tributary/render` + `@tributary/components`), the
-NotebookHost runtime spike (`@tributary/notebook`), the Electron shell
-(`apps/desktop`), the slice-0 demo fixture, and ADR-001/002/003 are in place.
-Stages 1–7 remain.
+Stage 0 (Shell + format/runtime spike) complete, and Stage 1 Slice 1.0 (the
+Git round-trip: workspace open/save/checkpoint/history + derived index + shell
+wiring) is in place with both an in-memory and a SQLite+FTS5 index.
+
+**Note:** the work is spike-grade, not product-grade. See
+[`findings.md`](./findings.md) for the ranked gaps (notably round-trip fidelity,
+stable identity, and save-time concurrency) before building further on Stage 1.

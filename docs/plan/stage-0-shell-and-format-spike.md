@@ -64,3 +64,10 @@ fixture tree.
 - [ ] ADR-002 recorded; swapping the runtime does not change the persisted doc.
 
 **Starts the build chain used by every later stage.**
+
+## Known gaps
+
+See [`findings.md`](./findings.md). In particular for this stage: round-trip is a
+canonical rewrite rather than source-preserving (finding 1), and the Electron
+shell is only proven headlessly with a Node-22-vs-Electron native-binding
+mismatch (finding 4).

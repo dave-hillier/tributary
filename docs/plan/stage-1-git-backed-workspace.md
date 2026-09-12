@@ -56,3 +56,10 @@ list/board views, and close the edit → autosave → checkpoint → history loo
 - [ ] All non-shell packages build/test with no Electron dependency.
 
 **The first offline-desktop milestone; everything after builds on a real repo + index.**
+
+## Known gaps
+
+See [`findings.md`](./findings.md). In particular: identity is path-derived so
+renames break links (finding 2), save has no base-blob/three-way-merge
+concurrency safety (finding 3), and the edit path re-parses the whole workspace
+and commits no-op saves (finding 5).
