@@ -87,6 +87,9 @@ are written as their decisions are settled.
 
 ## Status
 
-Draft v0.1 — scaffold in place, no stages started. ADR files
-(`docs/adr/`) and demo fixtures (`docs/examples/`) do not exist yet; they
-are created as their stages complete them.
+Stage 0 (Shell + format/runtime spike) complete: monorepo scaffold, the
+`@tributary/api` contract, the Markdown dialect parser (`@tributary/markdown`),
+the React renderer (`@tributary/render` + `@tributary/components`), the
+NotebookHost runtime spike (`@tributary/notebook`), the Electron shell
+(`apps/desktop`), the slice-0 demo fixture, and ADR-001/002/003 are in place.
+Stages 1–7 remain.
