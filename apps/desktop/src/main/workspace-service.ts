@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Workspace, createDemoWorkspace, type CommitInfo } from '@tributary/workspace';
 import { SqliteIndex } from '@tributary/index';
-import { parseMarkdown, updateFrontmatter } from '@tributary/markdown';
+import { parseMarkdown, updateFrontmatter, replaceCellSource } from '@tributary/markdown';
 import { ReactiveHost, serializeCellOutput, type CellResult } from '@tributary/notebook';
 import { createElement, Fragment } from 'react';
 import type { Document, DocumentId, WorkItem } from '@tributary/api';
@@ -13,10 +13,23 @@ import type { Document, DocumentId, WorkItem } from '@tributary/api';
  * Shell-side workspace service: owns the open workspace and its derived index,
  * exposed to the renderer over IPC. Git remains the durable truth (arch §5.2).
  */
+function collectCells(doc: Document): { lang: string; source: string }[] {
+  const out: { lang: string; source: string }[] = [];
+  const walk = (n: any): void => {
+    if (n.type === 'cell') out.push({ lang: n.lang, source: n.value as string });
+    if (n.children) for (const c of n.children) walk(c);
+  };
+  walk(doc.root);
+  return out;
+}
+
 export class WorkspaceService {
   private workspace: Workspace | null = null;
   private index: SqliteIndex | null = null;
   private hosts = new Map<string, ReactiveHost>();
+  private cellContext() {
+    return { React: { createElement, Fragment }, api: this.capabilities, components: {} };
+  }
   private capabilities = {
     workItems: () => this.listWorkItems(),
     listDocuments: () => this.listDocuments(),
@@ -104,14 +117,29 @@ export class WorkspaceService {
       cells.map((c) => ({ lang: c.lang as 'js' | 'ts' | 'jsx' | 'tsx', source: c.source }))
     );
     this.hosts.set(docId, host);
-    const values = await host.evaluate({ React: { createElement, Fragment }, api: this.capabilities, components: {} });
+    const values = await host.evaluate(this.cellContext());
     return values.map(serializeCellOutput);
   }
 
   async updateCell(docId: string, cellIndex: number, source: string): Promise<CellResult[]> {
-    const host = this.hosts.get(docId);
-    if (!host) return [];
-    const values = await host.update(cellIndex, source, { React: { createElement, Fragment }, api: this.capabilities, components: {} });
+    const workspace = this.workspace;
+    if (!workspace) return [];
+    const doc = workspace.getDocument(docId);
+    if (!doc || !doc.source) return [];
+    // Persist the cell edit into the .md and commit, then recompute dependants.
+    const newFullSource = replaceCellSource(doc.source, cellIndex, source);
+    const updatedDoc = parseMarkdown(newFullSource, { path: doc.path });
+    await workspace.save(updatedDoc, 'edit cell');
+    let host = this.hosts.get(docId);
+    if (!host) {
+      host = new ReactiveHost(
+        collectCells(updatedDoc).map((c) => ({ lang: c.lang as 'js' | 'ts' | 'jsx' | 'tsx', source: c.source }))
+      );
+      this.hosts.set(docId, host);
+      const values = await host.evaluate(this.cellContext());
+      return values.map(serializeCellOutput);
+    }
+    const values = await host.update(cellIndex, source, this.cellContext());
     return values.map(serializeCellOutput);
   }
 

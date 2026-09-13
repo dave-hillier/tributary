@@ -52,3 +52,30 @@ export function stringifyMarkdown(doc: Document, _options: StringifyOptions = {}
 }
 
 export { parseFrontmatter, updateFrontmatter } from './frontmatter.js';
+
+/**
+ * Replace the source of one executable cell (by index, in document order) in
+ * the raw Markdown source, preserving everything else byte-for-byte. Uses the
+ * cell node's source position to locate its fenced block.
+ */
+export function replaceCellSource(source: string, cellIndex: number, newCellSource: string): string {
+  const { body } = parseFrontmatter(source);
+  const frontmatterLength = source.length - body.length;
+  const root = parser.runSync(parser.parse(body)) as Root;
+
+  const cells: Array<{ position?: { start: { offset?: number }; end: { offset?: number } }; lang: string }> = [];
+  const walk = (node: any): void => {
+    if (node.type === 'cell') cells.push({ position: node.position, lang: node.lang });
+    if (node.children) for (const c of node.children) walk(c);
+  };
+  walk(root);
+
+  const cell = cells[cellIndex];
+  if (!cell || !cell.position || cell.position.start.offset === undefined || cell.position.end.offset === undefined) {
+    return source;
+  }
+  const start = frontmatterLength + cell.position.start.offset;
+  const end = frontmatterLength + cell.position.end.offset;
+  const fence = '\u0060\u0060\u0060' + cell.lang + '\n' + newCellSource.replace(/\n+$/, '') + '\n\u0060\u0060\u0060';
+  return source.slice(0, start) + fence + source.slice(end);
+}

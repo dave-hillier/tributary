@@ -144,6 +144,9 @@ await page.locator('textarea.cell-editor').first().fill('const greeting = "Updat
 await page.waitForTimeout(900);
 await verify('Updated greeting');
 await shot('07-cell-edit');
+const persisted = service.getDocument('index').source;
+if (persisted.includes('Updated greeting')) console.log('verify ok: cell edit persisted to .md');
+else { console.error('VERIFY FAILED: cell edit not persisted'); failed = true; }
 
 await browser.close();
 server.close();

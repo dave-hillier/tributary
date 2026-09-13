@@ -73,6 +73,12 @@ describe('Stage 1 slice: the Git round-trip', () => {
       expect(renamed.frontmatter.id).toBe('task-2');
       expect(service.listWorkItems().find((w) => w.id === 'task-2')?.title).toBe('Write tests');
 
+      // Per-cell edit persists to the .md (and commits).
+      await service.updateCell('index', 0, 'const greeting = "Persisted greeting"');
+      const reloaded = service.getDocument('index');
+      expect(reloaded!.source).toContain('Persisted greeting');
+      expect(reloaded!.source).not.toContain('Tributary renders TSX cells here.');
+
       // Backlinks: which documents link to a given document.
       const inbound = service.backlinks('task-1').map((d) => d.id);
       expect(inbound).toContain('index');
