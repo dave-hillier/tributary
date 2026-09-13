@@ -5,3 +5,5 @@ export { createObservableNotebookHost } from './observable-adapter.js';
 export { compileCell, compileDocument, evaluateCell, type CellLanguage, type CompiledCell, type DocumentCell } from './compiler.js';
 
 export { serializeCellOutput, type CellResult } from './serialize.js';
+
+export { ReactiveHost, compileReactiveCell, type ReactiveCell, type CompiledReactiveCell } from './reactive.js';

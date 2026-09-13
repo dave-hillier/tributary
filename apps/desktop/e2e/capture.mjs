@@ -56,7 +56,8 @@ const expose = {
   renameDocument: (id, p) => service.renameDocument(id, p),
   addRemote: (url, name) => service.addRemote(url, name),
   sync: () => service.sync(),
-  evaluateDocument: (cells) => service.evaluateDocument(cells),
+  evaluateDocument: (docId, cells) => service.evaluateDocument(docId, cells),
+  updateCell: (docId, idx, source) => service.updateCell(docId, idx, source),
 };
 for (const [k, fn] of Object.entries(expose)) {
   await context.exposeFunction('__' + k, fn);
@@ -86,9 +87,13 @@ async function shot(name) {
 // 01 board baseline
 await shot('01-board');
 await verify('Ship the demo');
-const strongCount = await page.locator('strong', { hasText: 'Tributary renders TSX cells here' }).count();
-if (strongCount > 0) console.log('verify ok: tsx cell rendered as <strong>');
-else { console.error('VERIFY FAILED: tsx cell <strong> output'); failed = true; }
+try {
+  await page.locator('strong', { hasText: 'Tributary renders TSX cells here' }).first().waitFor({ timeout: 5000 });
+  console.log('verify ok: tsx cell rendered as <strong>');
+} catch {
+  console.error('VERIFY FAILED: tsx cell <strong> output');
+  failed = true;
+}
 
 // 02 backlinks: load a work item and show what links to it
 await page.getByRole('button', { name: 'Ship the demo' }).first().click();
@@ -126,6 +131,19 @@ await page.getByRole('button', { name: 'Sync' }).click();
 await page.waitForTimeout(800);
 await verify('synced');
 await shot('06-synced');
+
+// 07 per-cell editing: navigate to the home doc (has cells), then edit a cell
+await page.getByRole('button', { name: 'Tributary Demo' }).first().click();
+await page.waitForTimeout(600);
+const editButtons = await page.getByRole('button', { name: 'Edit cell' }).count();
+if (editButtons > 0) console.log('verify ok: Edit cell buttons (' + editButtons + ')');
+else { console.error('VERIFY FAILED: no Edit cell buttons'); failed = true; }
+await page.getByRole('button', { name: 'Edit cell' }).first().click();
+await page.waitForTimeout(200);
+await page.locator('textarea.cell-editor').first().fill('const greeting = "Updated greeting"');
+await page.waitForTimeout(900);
+await verify('Updated greeting');
+await shot('07-cell-edit');
 
 await browser.close();
 server.close();

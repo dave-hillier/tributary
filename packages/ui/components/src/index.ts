@@ -11,8 +11,8 @@
  * survives a conservative allow-list sanitizer, otherwise it is skipped.
  */
 
-import { createElement, Fragment, createContext, useContext } from 'react';
-import type { ReactElement, ReactNode } from 'react';
+import { createElement, Fragment, createContext, useContext, useEffect, useRef, useState } from 'react';
+import type { ChangeEvent, ReactElement, ReactNode } from 'react';
 import type {
   Document,
   Heading,
@@ -209,6 +209,7 @@ const transclusionComponent: NodeComponent = ({ node }) => {
 
 export interface CellResolver {
   resolve: (cell: Cell) => CellResult | undefined;
+  update: (cell: Cell, source: string) => Promise<void>;
 }
 
 export const CellContext = createContext<CellResolver | null>(null);
@@ -231,18 +232,7 @@ function deserializeElement(type: string, props: Record<string, unknown>): React
   return createElement(type, p);
 }
 
-function CellView({ cell }: { cell: Cell }): ReactElement {
-  const resolver = useContext(CellContext);
-  if (!resolver) {
-    const source = cell.value as string;
-    return createElement(
-      'pre',
-      { className: 'cell' },
-      createElement('code', { className: 'language-' + cell.lang }, source),
-    );
-  }
-  const result = resolver.resolve(cell);
-  if (result === undefined) return createElement('pre', { className: 'cell-loading' }, '…');
+function renderResult(result: CellResult): ReactNode {
   switch (result.kind) {
     case 'element':
       return deserializeElement(result.type, result.props);
@@ -253,6 +243,63 @@ function CellView({ cell }: { cell: Cell }): ReactElement {
     case 'undefined':
       return createElement(Fragment, null);
   }
+}
+
+function CellView({ cell }: { cell: Cell }): ReactElement {
+  const resolver = useContext(CellContext);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState<string | null>(null);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (timer.current) clearTimeout(timer.current);
+    };
+  }, []);
+
+  if (!resolver) {
+    const source = cell.value as string;
+    return createElement(
+      'pre',
+      { className: 'cell' },
+      createElement('code', { className: 'language-' + cell.lang }, source),
+    );
+  }
+
+  const result = resolver.resolve(cell);
+  const onEdit = (v: string): void => {
+    setDraft(v);
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => {
+      void resolver.update(cell, v);
+    }, 500);
+  };
+
+  return createElement(
+    'div',
+    { className: 'cell-block' },
+    result === undefined ? createElement('pre', { className: 'cell-loading' }, '…') : renderResult(result),
+    createElement(
+      'button',
+      {
+        className: 'cell-edit-toggle',
+        onClick: () => {
+          if (!editing) setDraft(cell.value as string);
+          setEditing(!editing);
+        },
+      },
+      editing ? 'Done' : 'Edit cell',
+    ),
+    editing
+      ? createElement('textarea', {
+          className: 'cell-editor',
+          value: draft ?? (cell.value as string),
+          rows: 6,
+          style: { width: '100%', fontFamily: 'monospace' },
+          onChange: (e: ChangeEvent<HTMLTextAreaElement>) => onEdit(e.target.value),
+        })
+      : null,
+  );
 }
 
 const cellComponent: NodeComponent = ({ node }) => {

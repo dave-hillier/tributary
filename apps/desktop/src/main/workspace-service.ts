@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { Workspace, createDemoWorkspace, type CommitInfo } from '@tributary/workspace';
 import { SqliteIndex } from '@tributary/index';
 import { parseMarkdown, updateFrontmatter } from '@tributary/markdown';
-import { compileDocument, serializeCellOutput, type CellResult } from '@tributary/notebook';
+import { ReactiveHost, serializeCellOutput, type CellResult } from '@tributary/notebook';
 import { createElement, Fragment } from 'react';
 import type { Document, DocumentId, WorkItem } from '@tributary/api';
 
@@ -16,6 +16,7 @@ import type { Document, DocumentId, WorkItem } from '@tributary/api';
 export class WorkspaceService {
   private workspace: Workspace | null = null;
   private index: SqliteIndex | null = null;
+  private hosts = new Map<string, ReactiveHost>();
   private capabilities = {
     workItems: () => this.listWorkItems(),
     listDocuments: () => this.listDocuments(),
@@ -98,12 +99,19 @@ export class WorkspaceService {
     return workspace.getDocument(id) ?? updated;
   }
 
-  async evaluateDocument(cells: { lang: string; source: string }[]): Promise<CellResult[]> {
-    if (cells.length === 0) return [];
-    const run = compileDocument(
+  async evaluateDocument(docId: string, cells: { lang: string; source: string }[]): Promise<CellResult[]> {
+    const host = new ReactiveHost(
       cells.map((c) => ({ lang: c.lang as 'js' | 'ts' | 'jsx' | 'tsx', source: c.source }))
     );
-    const values = await run({ React: { createElement, Fragment }, api: this.capabilities });
+    this.hosts.set(docId, host);
+    const values = await host.evaluate({ React: { createElement, Fragment }, api: this.capabilities, components: {} });
+    return values.map(serializeCellOutput);
+  }
+
+  async updateCell(docId: string, cellIndex: number, source: string): Promise<CellResult[]> {
+    const host = this.hosts.get(docId);
+    if (!host) return [];
+    const values = await host.update(cellIndex, source, { React: { createElement, Fragment }, api: this.capabilities, components: {} });
     return values.map(serializeCellOutput);
   }
 

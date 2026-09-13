@@ -41,7 +41,7 @@ function wrapFinalExpression(js: string, outName: string): string {
 
 const APP_IMPORT_RE = /import\s*\{([^}]*)\}\s*from\s*"@tributary\/(api|components)"\s*;?/g;
 
-function shimImports(source: string): string {
+export function shimImports(source: string): string {
   return source.replace(APP_IMPORT_RE, (_m, names: string, mod: string) => {
     const clean = names.replace(/\s+/g, ' ').trim();
     return 'const { ' + clean + ' } = __scope.' + mod + ';';

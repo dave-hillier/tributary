@@ -47,7 +47,8 @@ app.whenReady().then(async () => {
   ipcMain.handle('workspace:renameDocument', (_evt, id: string, newPath: string) => service.renameDocument(id, newPath));
   ipcMain.handle('workspace:addRemote', (_evt, url: string, name?: string) => service.addRemote(url, name));
   ipcMain.handle('workspace:sync', () => service.sync());
-  ipcMain.handle('workspace:evaluateDocument', (_evt, cells: { lang: string; source: string }[]) => service.evaluateDocument(cells));
+  ipcMain.handle('workspace:evaluateDocument', (_evt, docId: string, cells: { lang: string; source: string }[]) => service.evaluateDocument(docId, cells));
+  ipcMain.handle('workspace:updateCell', (_evt, docId: string, cellIndex: number, source: string) => service.updateCell(docId, cellIndex, source));
 
   createWindow();
 

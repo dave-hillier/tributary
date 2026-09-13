@@ -41,7 +41,8 @@ interface TributaryApi {
   renameDocument: (id: string, newPath: string) => Promise<Document>;
   addRemote: (url: string, name?: string) => Promise<void>;
   sync: () => Promise<string>;
-  evaluateDocument: (cells: { lang: string; source: string }[]) => Promise<CellResult[]>;
+  evaluateDocument: (docId: string, cells: { lang: string; source: string }[]) => Promise<CellResult[]>;
+  updateCell: (docId: string, cellIndex: number, source: string) => Promise<CellResult[]>;
 }
 
 declare global {
@@ -74,6 +75,7 @@ function App() {
   const [renamePath, setRenamePath] = useState('');
   const [syncStatus, setSyncStatus] = useState('');
   const [cellResults, setCellResults] = useState<Map<Cell, CellResult>>(new Map());
+  const cellsRef = useRef<Cell[]>([]);
   const [backlinks, setBacklinks] = useState<Document[]>([]);
   const [diff, setDiff] = useState('');
   const [filters, setFilters] = useState<{ status?: string; assignee?: string; priority?: string; project?: string }>({});
@@ -90,7 +92,8 @@ function App() {
       setBacklinks(await window.tributary.backlinks(id).catch(() => []));
       setDiff(await window.tributary.diff(id).catch(() => ''));
       const cells = collectCells(d);
-      const results = await window.tributary.evaluateDocument(cells.map((c) => ({ lang: c.lang, source: c.value as string }))).catch(() => [] as CellResult[]);
+      cellsRef.current = cells;
+      const results = await window.tributary.evaluateDocument(d.id, cells.map((c) => ({ lang: c.lang, source: c.value as string }))).catch(() => [] as CellResult[]);
       const map = new Map<Cell, CellResult>();
       cells.forEach((c, i) => {
         const res = results[i];
@@ -181,6 +184,19 @@ function App() {
     setNewTitle('');
     await loadWorkItems();
     setDocs(await window.tributary.listDocuments());
+  };
+
+  const updateCell = async (cell: Cell, source: string): Promise<void> => {
+    if (!current) return;
+    const idx = cellsRef.current.indexOf(cell);
+    if (idx < 0) return;
+    const results = await window.tributary.updateCell(current.id, idx, source).catch(() => [] as CellResult[]);
+    const map = new Map<Cell, CellResult>();
+    cellsRef.current.forEach((c, i) => {
+      const res = results[i];
+      if (res) map.set(c, res);
+    });
+    setCellResults(map);
   };
 
   const onSync = async (): Promise<void> => {
@@ -305,7 +321,7 @@ function App() {
         <main>
           <h1>{current.frontmatter.title ?? current.id}</h1>
           <div onClick={onDocClick}>
-            <CellContext.Provider value={{ resolve: (cell) => cellResults.get(cell) }}>
+            <CellContext.Provider value={{ resolve: (cell) => cellResults.get(cell), update: updateCell }}>
               <DocumentView document={current} />
             </CellContext.Provider>
           </div>
