@@ -1,45 +1,9 @@
-import type { Document, DocumentId, Node, Parent, Text, WorkItem } from '@tributary/api';
-import type { Heading } from '@tributary/api';
+import type { Document, DocumentId, WorkItem } from '@tributary/api';
 
-// ---------------------------------------------------------------------------
-// Transclusion targets (arch §3, Stage 2): resolve a `target#heading` reference
-// to the section slice of root children that it denotes.
-// ---------------------------------------------------------------------------
-
-/** Flatten the visible text of phrasing content (heading labels etc.). */
-export function headingText(node: Node): string {
-  let out = '';
-  const walk = (n: Node): void => {
-    if (n.type === 'text') out += (n as Text).value;
-    if ('children' in n) for (const c of (n as Parent).children) walk(c);
-  };
-  walk(node);
-  return out;
-}
-
-/**
- * Find a heading section by its (case-insensitive) text label.
- * Returns the root children `[heading, ...following nodes]` up to (not
- * including) the next heading of the same or higher level.
- */
-export function findSection(doc: Document, heading: string): Node[] | undefined {
-  const want = heading.trim().toLowerCase();
-  const children = doc.root.children;
-  for (let i = 0; i < children.length; i++) {
-    const n = children[i]!;
-    if (n.type !== 'heading') continue;
-    if (headingText(n).trim().toLowerCase() !== want) continue;
-    const depth = (n as Heading).depth ?? 1;
-    const slice: Node[] = [n];
-    for (let j = i + 1; j < children.length; j++) {
-      const s = children[j]!;
-      if (s.type === 'heading' && ((s as Heading).depth ?? 1) <= depth) break;
-      slice.push(s);
-    }
-    return slice;
-  }
-  return undefined;
-}
+// Section slicing for transclusion lives in the (pure) markdown package so
+// shells and renderers can use it without pulling native deps; re-exported
+// here for API continuity.
+export { headingText, findSection } from '@tributary/markdown';
 
 /** A disposable, in-memory projection over parsed documents (arch §5.3). */
 export interface WorkspaceIndex {

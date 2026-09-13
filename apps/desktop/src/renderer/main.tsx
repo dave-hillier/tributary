@@ -3,7 +3,7 @@ import type { KeyboardEvent, MouseEvent } from 'react';
 import { createRoot } from 'react-dom/client';
 import { DocumentView, CellContext, TransclusionContext } from '@tributary/components';
 import type { CellResolver, CellResult, TransclusionResolver } from '@tributary/components';
-import { findSection } from '@tributary/index';
+import { findSection } from '@tributary/markdown';
 import CodeMirror from '@uiw/react-codemirror';
 import { markdown } from '@codemirror/lang-markdown';
 import type { Document, WorkItem, Cell } from '@tributary/api';

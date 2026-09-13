@@ -53,6 +53,8 @@ export function stringifyMarkdown(doc: Document, _options: StringifyOptions = {}
 
 export { parseFrontmatter, updateFrontmatter } from './frontmatter.js';
 
+export { headingText, findSection } from './section.js';
+
 /**
  * Replace the source of one executable cell (by index, in document order) in
  * the raw Markdown source, preserving everything else byte-for-byte. Uses the
