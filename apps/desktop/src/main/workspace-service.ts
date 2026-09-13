@@ -91,6 +91,20 @@ export class WorkspaceService {
     return workspace.getDocument(id) ?? updated;
   }
 
+  async addRemote(url: string, name = 'origin'): Promise<void> {
+    const workspace = this.workspace;
+    if (!workspace) throw new Error('Workspace not open');
+    await workspace.addRemote(name, url);
+  }
+
+  async sync(): Promise<string> {
+    const workspace = this.workspace;
+    if (!workspace) throw new Error('Workspace not open');
+    await workspace.fetch('origin');
+    await workspace.push('origin');
+    return 'synced';
+  }
+
   async renameDocument(id: DocumentId, newPath: string): Promise<Document> {
     const workspace = this.workspace;
     const index = this.index;

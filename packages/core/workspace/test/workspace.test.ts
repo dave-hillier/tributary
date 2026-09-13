@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { mkdtempSync, rmSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
 import { Workspace, deriveId } from '../src/index.js';
 import { createDemoWorkspace } from '../src/index.js';
 import { git } from '../src/git.js';
@@ -98,6 +98,26 @@ describe('Workspace (real temp Git repo)', () => {
       expect((await ws.history('task-1')).length).toBe(before);
     } finally {
       rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('push and clone against a local bare remote', async () => {
+    const root = tempDir();
+    const bare = mkdtempSync(join(tmpdir(), 'tributary-bare-'));
+    const cloneDir = mkdtempSync(join(tmpdir(), 'tributary-clone-'));
+    try {
+      const ws = await createDemoWorkspace(root);
+      git(dirname(bare), ['init', '--bare', '-q', bare]);
+      await ws.addRemote('origin', bare);
+      await ws.push('origin');
+      await ws.fetch('origin');
+      const ws2 = await Workspace.clone(bare, cloneDir);
+      expect(ws2.documents.length).toBe(ws.documents.length);
+      expect(ws2.getDocument('task-1')?.frontmatter.status).toBe('todo');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(bare, { recursive: true, force: true });
+      rmSync(cloneDir, { recursive: true, force: true });
     }
   });
 

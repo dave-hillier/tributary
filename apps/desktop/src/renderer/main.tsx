@@ -38,6 +38,8 @@ interface TributaryApi {
   updateWorkItem: (id: string, patch: Record<string, unknown>) => Promise<Document>;
   createWorkItem: (input: NewWorkItemInput) => Promise<Document>;
   renameDocument: (id: string, newPath: string) => Promise<Document>;
+  addRemote: (url: string, name?: string) => Promise<void>;
+  sync: () => Promise<string>;
 }
 
 declare global {
@@ -57,6 +59,7 @@ function App() {
   const [workItems, setWorkItems] = useState<WorkItem[]>([]);
   const [newTitle, setNewTitle] = useState('');
   const [renamePath, setRenamePath] = useState('');
+  const [syncStatus, setSyncStatus] = useState('');
   const [backlinks, setBacklinks] = useState<Document[]>([]);
   const [diff, setDiff] = useState('');
   const [filters, setFilters] = useState<{ status?: string; assignee?: string; priority?: string; project?: string }>({});
@@ -158,6 +161,14 @@ function App() {
     setDocs(await window.tributary.listDocuments());
   };
 
+  const onSync = async (): Promise<void> => {
+    try {
+      setSyncStatus(await window.tributary.sync());
+    } catch (e) {
+      setSyncStatus('Sync failed: ' + String(e));
+    }
+  };
+
   const onRename = async (): Promise<void> => {
     if (!current || !renamePath.trim()) return;
     await window.tributary.renameDocument(current.id, renamePath.trim());
@@ -256,6 +267,10 @@ function App() {
             ))}
           </ul>
         ) : null}
+      </div>
+      <div style={{ margin: '0.5rem 0' }}>
+        <button onClick={() => void onSync()}>Sync</button>
+        {syncStatus ? <span> {syncStatus}</span> : null}
       </div>
       <nav>
         {docs.map((d) => (

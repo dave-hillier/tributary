@@ -1,4 +1,5 @@
 import { chromium } from 'playwright';
+import { execFileSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { readFileSync, mkdirSync, mkdtempSync } from 'node:fs';
 import { join, dirname, extname } from 'node:path';
@@ -33,6 +34,10 @@ const root = mkdtempSync(join(tmpdir(), 'tributary-cap-'));
 await createDemoWorkspace(root);
 const service = new WorkspaceService();
 await service.open(root);
+// a local bare remote for the sync capture
+const bare = mkdtempSync(join(tmpdir(), 'tributary-bare-'));
+execFileSync('git', ['init', '--bare', '-q', bare]);
+await service.addRemote(bare);
 
 const browser = await chromium.launch({ channel: 'chrome', headless: true });
 const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
@@ -49,6 +54,8 @@ const expose = {
   updateWorkItem: (id, patch) => service.updateWorkItem(id, patch),
   createWorkItem: (input) => service.createWorkItem(input),
   renameDocument: (id, p) => service.renameDocument(id, p),
+  addRemote: (url, name) => service.addRemote(url, name),
+  sync: () => service.sync(),
 };
 for (const [k, fn] of Object.entries(expose)) {
   await context.exposeFunction('__' + k, fn);
@@ -109,6 +116,12 @@ await page.keyboard.insertText('\n\nAutosaved edit.');
 await page.waitForTimeout(1600);
 await verify('Autosaved');
 await shot('05-autosave');
+
+// 06 sync (fetch + push against the local remote)
+await page.getByRole('button', { name: 'Sync' }).click();
+await page.waitForTimeout(800);
+await verify('synced');
+await shot('06-synced');
 
 await browser.close();
 server.close();

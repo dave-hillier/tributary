@@ -192,6 +192,26 @@ export class Workspace {
     return git(this.ref.rootPath, ['log', '-p', '-1', '--format=', '--', doc.path]);
   }
 
+  /** Add a remote, fetch it, and push the current branch (arch §5.4/§5.5). */
+  async addRemote(name: string, url: string): Promise<void> {
+    git(this.ref.rootPath, ['remote', 'add', name, url]);
+  }
+
+  async fetch(remote = 'origin'): Promise<void> {
+    git(this.ref.rootPath, ['fetch', '-q', remote]);
+  }
+
+  async push(remote = 'origin'): Promise<void> {
+    const branch = git(this.ref.rootPath, ['rev-parse', '--abbrev-ref', 'HEAD']);
+    git(this.ref.rootPath, ['push', '-q', '-u', remote, branch]);
+  }
+
+  static async clone(url: string, destPath: string): Promise<Workspace> {
+    mkdirSync(dirname(destPath), { recursive: true });
+    git(dirname(destPath), ['clone', '-q', url, destPath]);
+    return Workspace.open(destPath);
+  }
+
   /** Commit history for a document path, oldest first. */
   async history(id: DocumentId): Promise<CommitInfo[]> {
     const doc = this.getDocument(id);

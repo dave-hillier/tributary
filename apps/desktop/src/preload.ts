@@ -24,6 +24,9 @@ const api = {
     ipcRenderer.invoke('workspace:createWorkItem', input),
   renameDocument: (id: string, newPath: string): Promise<Document> =>
     ipcRenderer.invoke('workspace:renameDocument', id, newPath),
+  addRemote: (url: string, name?: string): Promise<void> =>
+    ipcRenderer.invoke('workspace:addRemote', url, name),
+  sync: (): Promise<string> => ipcRenderer.invoke('workspace:sync'),
 };
 
 contextBridge.exposeInMainWorld('tributary', api);
