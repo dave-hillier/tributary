@@ -6,6 +6,15 @@ function createElement(type, props, ...children) {
 }
 
 describe('compileDocument', () => {
+  it('shims @tributary/api imports to the injected capability scope', async () => {
+    const run = compileDocument([
+      { lang: 'js', source: 'import { workItems } from "@tributary/api"\nconst items = workItems()' },
+      { lang: 'jsx', source: '<ul>{items.map((w) => <li>{w.title}</li>)}</ul>' },
+    ]);
+    const outs = await run({ React: { createElement }, api: { workItems: () => [{ title: 'A' }, { title: 'B' }] } });
+    expect(outs[1].type).toBe('ul');
+  });
+
   it('shares declarations across cells (declarations available downstream)', async () => {
     const run = compileDocument([
       { lang: 'js', source: 'const data = [1, 2, 3]' },

@@ -16,6 +16,11 @@ import type { Document, DocumentId, WorkItem } from '@tributary/api';
 export class WorkspaceService {
   private workspace: Workspace | null = null;
   private index: SqliteIndex | null = null;
+  private capabilities = {
+    workItems: () => this.listWorkItems(),
+    listDocuments: () => this.listDocuments(),
+    query: (q: string) => this.search(q),
+  };
 
   /** Open a freshly-seeded demo workspace (ephemeral, for the slice). */
   async openDemo(): Promise<void> {
@@ -98,7 +103,7 @@ export class WorkspaceService {
     const run = compileDocument(
       cells.map((c) => ({ lang: c.lang as 'js' | 'ts' | 'jsx' | 'tsx', source: c.source }))
     );
-    const values = await run({ React: { createElement, Fragment } });
+    const values = await run({ React: { createElement, Fragment }, api: this.capabilities });
     return values.map(serializeCellOutput);
   }
 

@@ -39,6 +39,15 @@ function wrapFinalExpression(js: string, outName: string): string {
   }
 }
 
+const APP_IMPORT_RE = /import\s*\{([^}]*)\}\s*from\s*"@tributary\/(api|components)"\s*;?/g;
+
+function shimImports(source: string): string {
+  return source.replace(APP_IMPORT_RE, (_m, names: string, mod: string) => {
+    const clean = names.replace(/\s+/g, ' ').trim();
+    return 'const { ' + clean + ' } = __scope.' + mod + ';';
+  });
+}
+
 export interface DocumentCell {
   lang: CellLanguage;
   source: string;
@@ -52,7 +61,7 @@ export interface DocumentCell {
  */
 export function compileDocument(cells: DocumentCell[]): (scope: Record<string, unknown>) => Promise<unknown[]> {
   const parts = cells.map((c, i) => {
-    const js = transformSync(c.source, {
+    const js = transformSync(shimImports(c.source), {
       loader: c.lang,
       jsx: 'transform',
       jsxFactory: 'React.createElement',
@@ -62,22 +71,22 @@ export function compileDocument(cells: DocumentCell[]): (scope: Record<string, u
   });
   const outs = cells.map((_, i) => '__out_' + i).join(', ');
   const body = parts.join('\n') + '\nreturn [' + outs + '];';
-  const fn = new AsyncFunction('React', 'api', body);
-  return (scope) => fn(scope.React, scope.api);
+  const fn = new AsyncFunction('React', '__scope', body);
+  return (scope) => fn(scope.React, { api: scope.api, components: scope.components });
 }
 
 export type CompiledCell = (scope: Record<string, unknown>) => Promise<unknown>;
 
 export function compileCell(source: string, lang: CellLanguage): CompiledCell {
-  const js = transformSync(source, {
+  const js = transformSync(shimImports(source), {
     loader: lang,
     jsx: 'transform',
     jsxFactory: 'React.createElement',
     jsxFragment: 'React.Fragment',
   }).code;
   const body = wrapLastExpression(js);
-  const fn = new AsyncFunction('React', body);
-  return (scope) => fn(scope.React);
+  const fn = new AsyncFunction('React', '__scope', body);
+  return (scope) => fn(scope.React, { api: scope.api, components: scope.components });
 }
 
 export async function evaluateCell(source: string, lang: CellLanguage, scope: Record<string, unknown> = {}) {
