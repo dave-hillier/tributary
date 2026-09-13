@@ -27,7 +27,7 @@ const api = {
   addRemote: (url: string, name?: string): Promise<void> =>
     ipcRenderer.invoke('workspace:addRemote', url, name),
   sync: (): Promise<string> => ipcRenderer.invoke('workspace:sync'),
-  evaluateCell: (lang: string, source: string): Promise<unknown> => ipcRenderer.invoke('workspace:evaluateCell', lang, source),
+  evaluateDocument: (cells: { lang: string; source: string }[]): Promise<unknown[]> => ipcRenderer.invoke('workspace:evaluateDocument', cells),
 };
 
 contextBridge.exposeInMainWorld('tributary', api);

@@ -13,6 +13,10 @@ cell.
 
 ![[notes/hello]]
 
+```js
+const greeting = "Tributary renders TSX cells here."
+```
+
 ```tsx
-<strong>Tributary renders TSX cells here.</strong>
+<strong>{greeting}</strong>
 ```

@@ -2,10 +2,10 @@ import { StrictMode, useEffect, useRef, useState } from 'react';
 import type { MouseEvent } from 'react';
 import { createRoot } from 'react-dom/client';
 import { DocumentView, CellContext } from '@tributary/components';
-import type { CellEvaluator, CellResult } from '@tributary/components';
+import type { CellResolver, CellResult } from '@tributary/components';
 import CodeMirror from '@uiw/react-codemirror';
 import { markdown } from '@codemirror/lang-markdown';
-import type { Document, WorkItem } from '@tributary/api';
+import type { Document, WorkItem, Cell } from '@tributary/api';
 
 interface HistoryEntry {
   hash: string;
@@ -41,7 +41,7 @@ interface TributaryApi {
   renameDocument: (id: string, newPath: string) => Promise<Document>;
   addRemote: (url: string, name?: string) => Promise<void>;
   sync: () => Promise<string>;
-  evaluateCell: (lang: string, source: string) => Promise<CellResult>;
+  evaluateDocument: (cells: { lang: string; source: string }[]) => Promise<CellResult[]>;
 }
 
 declare global {
@@ -50,9 +50,16 @@ declare global {
   }
 }
 
-const cellEvaluator: CellEvaluator = {
-  evaluate: (lang, source) => window.tributary.evaluateCell(lang, source),
-};
+function collectCells(doc: Document): Cell[] {
+  const out: Cell[] = [];
+  const walk = (n: unknown): void => {
+    const node = n as { type?: string; children?: unknown[] };
+    if (node.type === 'cell') out.push(node as unknown as Cell);
+    if (node.children) for (const c of node.children) walk(c);
+  };
+  walk(doc.root);
+  return out;
+}
 
 function App() {
   const [docs, setDocs] = useState<Document[]>([]);
@@ -66,6 +73,7 @@ function App() {
   const [newTitle, setNewTitle] = useState('');
   const [renamePath, setRenamePath] = useState('');
   const [syncStatus, setSyncStatus] = useState('');
+  const [cellResults, setCellResults] = useState<Map<Cell, CellResult>>(new Map());
   const [backlinks, setBacklinks] = useState<Document[]>([]);
   const [diff, setDiff] = useState('');
   const [filters, setFilters] = useState<{ status?: string; assignee?: string; priority?: string; project?: string }>({});
@@ -81,6 +89,14 @@ function App() {
       setHistory(await window.tributary.history(id).catch(() => []));
       setBacklinks(await window.tributary.backlinks(id).catch(() => []));
       setDiff(await window.tributary.diff(id).catch(() => ''));
+      const cells = collectCells(d);
+      const results = await window.tributary.evaluateDocument(cells.map((c) => ({ lang: c.lang, source: c.value as string }))).catch(() => [] as CellResult[]);
+      const map = new Map<Cell, CellResult>();
+      cells.forEach((c, i) => {
+        const res = results[i];
+        if (res) map.set(c, res);
+      });
+      setCellResults(map);
     }
   };
 
@@ -289,7 +305,7 @@ function App() {
         <main>
           <h1>{current.frontmatter.title ?? current.id}</h1>
           <div onClick={onDocClick}>
-            <CellContext.Provider value={cellEvaluator}>
+            <CellContext.Provider value={{ resolve: (cell) => cellResults.get(cell) }}>
               <DocumentView document={current} />
             </CellContext.Provider>
           </div>

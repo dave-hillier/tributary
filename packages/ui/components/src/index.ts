@@ -11,7 +11,7 @@
  * survives a conservative allow-list sanitizer, otherwise it is skipped.
  */
 
-import { createElement, Fragment, useEffect, useState, createContext, useContext } from 'react';
+import { createElement, Fragment, createContext, useContext } from 'react';
 import type { ReactElement, ReactNode } from 'react';
 import type {
   Document,
@@ -207,11 +207,11 @@ const transclusionComponent: NodeComponent = ({ node }) => {
   );
 };
 
-export interface CellEvaluator {
-  evaluate: (lang: string, source: string) => Promise<CellResult>;
+export interface CellResolver {
+  resolve: (cell: Cell) => CellResult | undefined;
 }
 
-export const CellContext = createContext<CellEvaluator | null>(null);
+export const CellContext = createContext<CellResolver | null>(null);
 
 function deserializeNode(v: unknown): ReactNode {
   if (Array.isArray(v)) return v.map(deserializeNode);
@@ -232,26 +232,8 @@ function deserializeElement(type: string, props: Record<string, unknown>): React
 }
 
 function CellView({ cell }: { cell: Cell }): ReactElement {
-  const evaluator = useContext(CellContext);
-  const [result, setResult] = useState<CellResult | null>(null);
-
-  useEffect(() => {
-    if (!evaluator) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const r = await evaluator.evaluate(cell.lang, cell.value as string);
-        if (!cancelled) setResult(r);
-      } catch (e) {
-        if (!cancelled) setResult({ kind: 'error', message: String(e) });
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [evaluator, cell.lang, cell.value]);
-
-  if (!evaluator) {
+  const resolver = useContext(CellContext);
+  if (!resolver) {
     const source = cell.value as string;
     return createElement(
       'pre',
@@ -259,7 +241,8 @@ function CellView({ cell }: { cell: Cell }): ReactElement {
       createElement('code', { className: 'language-' + cell.lang }, source),
     );
   }
-  if (result === null) return createElement('pre', { className: 'cell-loading' }, '…');
+  const result = resolver.resolve(cell);
+  if (result === undefined) return createElement('pre', { className: 'cell-loading' }, '…');
   switch (result.kind) {
     case 'element':
       return deserializeElement(result.type, result.props);

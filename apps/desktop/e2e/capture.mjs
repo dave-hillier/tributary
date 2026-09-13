@@ -56,7 +56,7 @@ const expose = {
   renameDocument: (id, p) => service.renameDocument(id, p),
   addRemote: (url, name) => service.addRemote(url, name),
   sync: () => service.sync(),
-  evaluateCell: (lang, source) => service.evaluateCell(lang, source),
+  evaluateDocument: (cells) => service.evaluateDocument(cells),
 };
 for (const [k, fn] of Object.entries(expose)) {
   await context.exposeFunction('__' + k, fn);

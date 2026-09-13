@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { Workspace, createDemoWorkspace, type CommitInfo } from '@tributary/workspace';
 import { SqliteIndex } from '@tributary/index';
 import { parseMarkdown, updateFrontmatter } from '@tributary/markdown';
-import { evaluateCell as evaluateNotebookCell, serializeCellOutput, type CellResult } from '@tributary/notebook';
+import { compileDocument, serializeCellOutput, type CellResult } from '@tributary/notebook';
 import { createElement, Fragment } from 'react';
 import type { Document, DocumentId, WorkItem } from '@tributary/api';
 
@@ -93,11 +93,13 @@ export class WorkspaceService {
     return workspace.getDocument(id) ?? updated;
   }
 
-  async evaluateCell(lang: string, source: string): Promise<CellResult> {
-    const value = await evaluateNotebookCell(source, lang as 'js' | 'ts' | 'jsx' | 'tsx', {
-      React: { createElement, Fragment },
-    });
-    return serializeCellOutput(value);
+  async evaluateDocument(cells: { lang: string; source: string }[]): Promise<CellResult[]> {
+    if (cells.length === 0) return [];
+    const run = compileDocument(
+      cells.map((c) => ({ lang: c.lang as 'js' | 'ts' | 'jsx' | 'tsx', source: c.source }))
+    );
+    const values = await run({ React: { createElement, Fragment } });
+    return values.map(serializeCellOutput);
   }
 
   async addRemote(url: string, name = 'origin'): Promise<void> {
