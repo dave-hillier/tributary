@@ -33,11 +33,19 @@ AST vocabulary.
 
 ## Round-trip fidelity
 
-The guarantee is **parse → stringify → parse yields an AST deep-equal to the
-first parse** (modulo source position fields, which the serializer does not
-emit). Serialization is **canonical**: it uses ATX headings, ``` fenced code,
-and preserves frontmatter key order via `yaml` round-trip. This keeps re-saves
-diff-stable. Golden tests pin the canonical output.
+The guarantee is a **hybrid** (resolved from finding 1):
+
+- **Cell bodies and frontmatter round-trip byte-for-byte.** Executable cell
+  source is stored verbatim on the node and never reformatted; frontmatter is
+  kept as its raw YAML text (not re-serialized), so comments, anchors, key order
+  and formatting survive.
+- **Prose is serialized canonically and stably** (ATX headings, ``` fenced code,
+  consistent list/emphasis markers), so re-saves are diff-stable once normalized.
+- **Full source-preservation of prose** (setext vs ATX, `~~~` vs ```, `_` vs `*`)
+  is out of scope for v1; revisit if prose diffs prove painful.
+
+The testable guarantee: parse → stringify → parse is idempotent, and cell bodies
++ raw frontmatter are byte-identical across a round-trip.
 
 ## Degradation
 
