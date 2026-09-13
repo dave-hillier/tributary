@@ -13,7 +13,7 @@ interface HistoryEntry {
 interface TributaryApi {
   getDocument: (id: string) => Promise<Document | null>;
   listDocuments: () => Promise<Document[]>;
-  saveDocument: (doc: Document, message?: string) => Promise<{ commit: string }>;
+  saveDocument: (doc: Document, message?: string) => Promise<{ commit: string | null; changed: boolean }>;
   history: (id: string) => Promise<HistoryEntry[]>;
   resolveLink: (target: string) => Promise<Document | null>;
   search: (query: string) => Promise<Document[]>;
@@ -54,8 +54,8 @@ function App(): JSX.Element {
 
   const onSave = async (): Promise<void> => {
     if (!current) return;
-    const { commit } = await window.tributary.saveDocument({ ...current, source }, 'edit from UI');
-    setSavedMsg('Saved ' + commit.slice(0, 7));
+    const result = await window.tributary.saveDocument({ ...current, source }, 'edit from UI');
+    setSavedMsg(result.changed ? 'Saved ' + (result.commit ?? '').slice(0, 7) : 'No changes');
     await load(current.id);
   };
 

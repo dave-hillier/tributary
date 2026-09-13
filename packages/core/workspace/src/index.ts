@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, readdirSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, readdirSync, mkdirSync, existsSync } from 'node:fs';
 import { join, relative, dirname, sep } from 'node:path';
 import { parseMarkdown, stringifyMarkdown } from '@tributary/markdown';
 import type { Document, DocumentId, WorkspaceRef } from '@tributary/api';
@@ -38,15 +38,36 @@ function listMarkdownFiles(rootPath: string): string[] {
  * A local workspace over one Git repository (arch §5.2). Git is the durable
  * truth; this class reads from it and writes semantic checkpoints back to it.
  */
+export class StaleBaseError extends Error {
+  readonly id: DocumentId;
+  constructor(id: DocumentId) {
+    super('Stale base for document ' + id + ': it changed since it was opened');
+    this.name = 'StaleBaseError';
+    this.id = id;
+  }
+}
+
+/**
+ * A local workspace over one Git repository (arch §5.2). Git is the durable
+ * truth; this class reads from it and writes semantic checkpoints back to it.
+ */
 export class Workspace {
   readonly ref: WorkspaceRef;
   readonly documents: Document[];
   readonly duplicateIds: DuplicateIdReport[];
+  private baseBlobs = new Map<DocumentId, string>();
 
   private constructor(ref: WorkspaceRef, documents: Document[], duplicateIds: DuplicateIdReport[]) {
     this.ref = ref;
     this.documents = documents;
     this.duplicateIds = duplicateIds;
+    for (const d of documents) {
+      try {
+        this.baseBlobs.set(d.id, git(ref.rootPath, ['rev-parse', 'HEAD:' + d.path]));
+      } catch {
+        // untracked file: no base blob to guard against
+      }
+    }
   }
 
   static async open(rootPath: string): Promise<Workspace> {
@@ -77,16 +98,50 @@ export class Workspace {
     return this.documents.find((d) => d.id === id);
   }
 
-  /** Write a document and record a semantic checkpoint commit. */
-  async save(doc: Document, message?: string): Promise<{ commit: string }> {
+  /** Write a document and record a semantic checkpoint commit (skips no-ops). */
+  async save(doc: Document, message?: string): Promise<{ commit: string | null; changed: boolean }> {
     const abs = join(this.ref.rootPath, doc.path);
+    const newSource = doc.source ?? stringifyMarkdown(doc);
+
+    // No-op skip: don't commit when content is unchanged.
+    const currentDisk = existsSync(abs) ? readFileSync(abs, 'utf8') : null;
+    if (currentDisk === newSource) {
+      return { commit: null, changed: false };
+    }
+
+    // Stale-base guard: refuse to clobber a file that changed since open.
+    const base = this.baseBlobs.get(doc.id);
+    if (base) {
+      let headBlob: string | null = null;
+      try {
+        headBlob = git(this.ref.rootPath, ['rev-parse', 'HEAD:' + doc.path]);
+      } catch {
+        headBlob = null;
+      }
+      if (headBlob && headBlob !== base) {
+        throw new StaleBaseError(doc.id);
+      }
+    }
+
     mkdirSync(dirname(abs), { recursive: true });
-    const source = doc.source ?? stringifyMarkdown(doc);
-    writeFileSync(abs, source, 'utf8');
+    writeFileSync(abs, newSource, 'utf8');
     git(this.ref.rootPath, ['add', '--', doc.path]);
     git(this.ref.rootPath, ['commit', '-q', '-m', message ?? 'edit ' + doc.path]);
     const commit = git(this.ref.rootPath, ['rev-parse', 'HEAD']);
-    return { commit };
+
+    // Per-document invalidation: re-parse just this file, not the whole workspace.
+    const updated = parseMarkdown(newSource, { path: doc.path });
+    const idx = this.documents.findIndex((d) => d.id === doc.id);
+    if (idx >= 0) this.documents[idx] = updated;
+    else this.documents.push(updated);
+
+    try {
+      this.baseBlobs.set(doc.id, git(this.ref.rootPath, ['rev-parse', 'HEAD:' + doc.path]));
+    } catch {
+      this.baseBlobs.delete(doc.id);
+    }
+
+    return { commit, changed: true };
   }
 
   /** Commit history for a document path, oldest first. */

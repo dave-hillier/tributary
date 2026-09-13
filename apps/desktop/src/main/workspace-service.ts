@@ -41,15 +41,16 @@ export class WorkspaceService {
     return this.index?.resolve(target) ?? null;
   }
 
-  async saveDocument(doc: Document, message?: string): Promise<{ commit: string }> {
+  async saveDocument(doc: Document, message?: string): Promise<{ commit: string | null; changed: boolean }> {
     const workspace = this.workspace;
     const index = this.index;
     if (!workspace || !index) throw new Error('Workspace not open');
     const result = await workspace.save(doc, message);
-    // Rebuild derived state from Git after the checkpoint.
-    const refreshed = await Workspace.open(workspace.ref.rootPath);
-    this.workspace = refreshed;
-    index.rebuild(refreshed.documents);
+    // Per-document invalidation: the workspace already re-parsed the saved doc;
+    // just rebuild the in-memory index from the (updated) documents array.
+    if (result.changed) {
+      index.rebuild(workspace.documents);
+    }
     return result;
   }
 

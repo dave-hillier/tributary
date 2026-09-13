@@ -10,7 +10,7 @@ interface HistoryEntry {
 const api = {
   getDocument: (id: string): Promise<Document | null> => ipcRenderer.invoke('workspace:getDocument', id),
   listDocuments: (): Promise<Document[]> => ipcRenderer.invoke('workspace:listDocuments'),
-  saveDocument: (doc: Document, message?: string): Promise<{ commit: string }> =>
+  saveDocument: (doc: Document, message?: string): Promise<{ commit: string | null; changed: boolean }> =>
     ipcRenderer.invoke('workspace:saveDocument', doc, message),
   history: (id: string): Promise<HistoryEntry[]> => ipcRenderer.invoke('workspace:history', id),
   resolveLink: (target: string): Promise<Document | null> => ipcRenderer.invoke('workspace:resolveLink', target),

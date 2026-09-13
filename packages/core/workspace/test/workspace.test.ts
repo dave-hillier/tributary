@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Workspace, deriveId } from '../src/index.js';
 import { createDemoWorkspace } from '../src/index.js';
+import { git } from '../src/git.js';
 
 function tempDir(): string {
   return mkdtempSync(join(tmpdir(), 'tributary-ws-'));
@@ -56,13 +57,45 @@ describe('Workspace (real temp Git repo)', () => {
       const before = (await ws.history('notes/hello')).length; // seed commit only
 
       doc.source = doc.source!.replace('A simple wiki document', 'A simple wiki document (edited)');
-      const { commit } = await ws.save(doc, 'edit hello');
+      const result = await ws.save(doc, 'edit hello');
 
-      expect(commit).toMatch(/^[0-9a-f]{40}$/);
+      expect(result.changed).toBe(true);
+      expect(result.commit).toMatch(/^[0-9a-f]{40}$/);
       const hist = await ws.history('notes/hello');
       expect(hist.length).toBe(before + 1);
       expect(hist[hist.length - 1].message).toBe('edit hello');
       expect(readFileSync(join(root, 'notes/hello.md'), 'utf8')).toContain('(edited)');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('skips a commit when content is unchanged (no-op)', async () => {
+    const root = tempDir();
+    try {
+      const ws = await createDemoWorkspace(root);
+      const doc = ws.getDocument('notes/hello')!;
+      const before = (await ws.history('notes/hello')).length;
+      const result = await ws.save(doc, 'no-op');
+      expect(result.changed).toBe(false);
+      expect(result.commit).toBeNull();
+      expect((await ws.history('notes/hello')).length).toBe(before);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses to clobber a stale base', async () => {
+    const root = tempDir();
+    try {
+      const ws = await createDemoWorkspace(root);
+      const doc = ws.getDocument('notes/hello')!;
+      // simulate an external concurrent edit + commit
+      writeFileSync(join(root, 'notes/hello.md'), '---\ntitle: Hello\nkind: wiki\n---\n\n# External change\n');
+      git(root, ['add', 'notes/hello.md']);
+      git(root, ['commit', '-q', '-m', 'external change']);
+      // saving the stale doc must throw
+      await expect(ws.save(doc, 'my edit')).rejects.toThrow(/Stale/);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

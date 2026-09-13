@@ -33,8 +33,9 @@ describe('Stage 1 slice: the Git round-trip', () => {
       const hello = service.getDocument('notes/hello')!;
       const before = (await service.history('notes/hello')).length;
       hello.source = hello.source!.replace('A simple wiki document', 'A simple wiki document (edited)');
-      const { commit } = await service.saveDocument(hello, 'edit hello');
-      expect(commit).toMatch(/^[0-9a-f]{40}$/);
+      const result = await service.saveDocument(hello, 'edit hello');
+      expect(result.changed).toBe(true);
+      expect(result.commit).toMatch(/^[0-9a-f]{40}$/);
       const hist = await service.history('notes/hello');
       expect(hist.length).toBe(before + 1);
       expect(hist[hist.length - 1].message).toBe('edit hello');
