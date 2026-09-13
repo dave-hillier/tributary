@@ -77,6 +77,8 @@ pnpm --filter app-desktop smoke:window   # window + contextBridge, needs a deskt
 - [`docs/plan/`](docs/plan/README.md) — the staged build plan (stages map to
   end-to-end vertical slices), plus a living critical-review log in
   [`findings.md`](docs/plan/findings.md).
+- [`docs/reference/`](docs/reference/frontmatter.md) — authoring reference:
+  frontmatter keys, work-item vocabulary, references and diagnostics.
 - [`docs/adr/`](docs/adr/README.md) — decision records: Markdown dialect,
   notebook runtime, local-first sync/checkpoint, the TSX-native cell model, the
   work-item ontology.

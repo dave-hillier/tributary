@@ -78,6 +78,12 @@ only on `@tributary/api`) owns normalisation, vocabularies, reference parsing,
 resolution and validation. It is the answer to the shape of finding 15: the
 model was flat because nothing owned it.
 
+## Reference
+
+The authoring-facing reference for the resulting frontmatter — every key, the
+vocabularies, the deprecated spellings and the diagnostics — is
+[`docs/reference/frontmatter.md`](../reference/frontmatter.md).
+
 ## Consequences
 
 - Existing documents keep working: `kind`, `assignee` and string priorities are

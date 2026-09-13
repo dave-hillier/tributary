@@ -35,6 +35,11 @@ before touching any code — every stage assumes this layout.
 risks and open decisions against the work committed so far. Check it before
 claiming a stage is done, and update it when a finding is resolved.
 
+Reference documentation — the authoring-facing description of what the format
+means, as opposed to why it was chosen — lives in
+[`docs/reference/`](../reference/). Start with
+[`frontmatter.md`](../reference/frontmatter.md).
+
 ## Sequencing summary
 
 Stages map one-to-one to the architecture's vertical slices (§10). Each stage

@@ -19,6 +19,8 @@ serialized by `remark-stringify` with custom handlers. The extensions are:
 
 1. **YAML frontmatter** — a leading `--- ... ---` block, parsed with the
    `yaml` package into `DocumentFrontmatter` (open-ended, known keys typed).
+   What the known keys *mean* is [ADR-005](./0005-work-item-ontology.md); the
+   authoring reference is [`docs/reference/frontmatter.md`](../reference/frontmatter.md).
 2. **Wiki links** — `[[target]]` and `[[target|alias]]` → `wikiLink` node.
 3. **Transclusion** — `![[target]]` and `![[target#heading]]` → `transclusion` node.
 4. **Executable cells** — a fence whose language is `js`/`ts`/`jsx`/`tsx` is a

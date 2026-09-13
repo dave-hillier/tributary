@@ -291,6 +291,11 @@ canonical spellings, so new documents need no migration, and the board's columns
 facets and ordering come from the vocabulary (priority sorts by urgency instead
 of alphabetically).
 
+**Documented in:** [ADR-005](../adr/0005-work-item-ontology.md) (the decision)
+and [`docs/reference/frontmatter.md`](../reference/frontmatter.md) (the authoring
+reference: every key, the vocabularies, the deprecated spellings, the
+diagnostics).
+
 **Remaining:** the `work/issues` directory convention is unused (paths are
 non-semantic, so this is cosmetic), and `template` is declared but no template
 selection consumes it yet.

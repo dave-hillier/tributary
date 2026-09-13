@@ -24,7 +24,12 @@ invalidation; add import/export and repository health diagnostics.
 ### 7.3 Security & policy (`api`, `workspace`, `jobs`)
 - Permissions, execution policy, sandboxing and audit surfaces per the
   deployment model (§8, §4.3 trust table).
-- Health diagnostics + import/export.
+- Health diagnostics + import/export. **Already in place:** ontology
+  diagnostics (ADR-005 §9) report deprecated keys, unknown vocabulary and
+  unresolvable references via `Workspace.diagnostics()`. Repository health here
+  means extending that surface — duplicate ids, orphaned links, index staleness
+  — not building a second validation path. Validation must keep *reporting*
+  rather than rejecting (§4.2).
 
 ### 7.4 Scale & index health (`index`)
 - Scale index/search; background rebuilds; **incremental invalidation** (§13).
