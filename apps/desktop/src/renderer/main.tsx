@@ -1,4 +1,4 @@
-import { StrictMode, useEffect, useState } from 'react';
+import { StrictMode, useEffect, useRef, useState } from 'react';
 import type { MouseEvent } from 'react';
 import { createRoot } from 'react-dom/client';
 import { DocumentView } from '@tributary/components';
@@ -58,12 +58,15 @@ function App() {
   const [backlinks, setBacklinks] = useState<Document[]>([]);
   const [diff, setDiff] = useState('');
   const [filters, setFilters] = useState<{ status?: string; assignee?: string; priority?: string; project?: string }>({});
+  const autosaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastSavedSource = useRef('');
 
   const load = async (id: string): Promise<void> => {
     const d = await window.tributary.getDocument(id);
     if (d) {
       setCurrent(d);
       setSource(d.source ?? '');
+      lastSavedSource.current = d.source ?? '';
       setHistory(await window.tributary.history(id).catch(() => []));
       setBacklinks(await window.tributary.backlinks(id).catch(() => []));
       setDiff(await window.tributary.diff(id).catch(() => ''));
@@ -88,11 +91,32 @@ function App() {
     if (!current) return;
     try {
       const result = await window.tributary.saveDocument({ ...current, source }, 'edit from UI');
+      lastSavedSource.current = source;
       setSavedMsg(result.changed ? 'Saved ' + (result.commit ?? '').slice(0, 7) : 'No changes');
       await load(current.id);
     } catch (e) {
       setSavedMsg('Save failed: ' + String(e));
     }
+  };
+
+  const autosave = async (): Promise<void> => {
+    if (!current || source === lastSavedSource.current) return;
+    try {
+      const result = await window.tributary.saveDocument({ ...current, source }, 'autosave');
+      lastSavedSource.current = source;
+      setSavedMsg(result.changed ? 'Autosaved ' + (result.commit ?? '').slice(0, 7) : 'No changes');
+    } catch (e) {
+      setSavedMsg('Autosave failed: ' + String(e));
+    }
+  };
+
+  const onSourceChange = (v: string): void => {
+    setSource(v);
+    setSavedMsg('Unsaved changes…');
+    if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
+    autosaveTimer.current = setTimeout(() => {
+      void autosave();
+    }, 1000);
   };
 
   const onSearch = async (): Promise<void> => {
@@ -245,7 +269,7 @@ function App() {
             <DocumentView document={current} />
           </div>
           <hr />
-          <textarea value={source} onChange={(e) => setSource(e.target.value)} rows={10} style={{ width: '100%' }} />
+          <textarea value={source} onChange={(e) => onSourceChange(e.target.value)} rows={10} style={{ width: '100%' }} />
           <button onClick={() => void onSave()}>Save (checkpoint)</button>
           {savedMsg ? <p>{savedMsg}</p> : null}
           <div>
