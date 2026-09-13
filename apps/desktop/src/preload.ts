@@ -20,6 +20,8 @@ const api = {
     ipcRenderer.invoke('workspace:updateWorkItem', id, patch),
   createWorkItem: (input: { title: string; status?: string; assignee?: string; priority?: string; project?: string }): Promise<Document> =>
     ipcRenderer.invoke('workspace:createWorkItem', input),
+  renameDocument: (id: string, newPath: string): Promise<Document> =>
+    ipcRenderer.invoke('workspace:renameDocument', id, newPath),
 };
 
 contextBridge.exposeInMainWorld('tributary', api);

@@ -42,6 +42,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('workspace:listWorkItems', () => service.listWorkItems());
   ipcMain.handle('workspace:updateWorkItem', (_evt, id: string, patch: Record<string, unknown>) => service.updateWorkItem(id, patch));
   ipcMain.handle('workspace:createWorkItem', (_evt, input: { title: string; status?: string; assignee?: string; priority?: string; project?: string }) => service.createWorkItem(input));
+  ipcMain.handle('workspace:renameDocument', (_evt, id: string, newPath: string) => service.renameDocument(id, newPath));
 
   createWindow();
 

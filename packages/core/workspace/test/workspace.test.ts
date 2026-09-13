@@ -117,6 +117,22 @@ describe('Workspace (real temp Git repo)', () => {
     }
   });
 
+  it('renames a document and preserves its id', async () => {
+    const root = tempDir();
+    try {
+      const ws = await createDemoWorkspace(root);
+      const before = ws.getDocument('task-1')!;
+      expect(before.path).toBe('items/task-1.md');
+      await ws.rename('task-1', 'items/ship-demo.md');
+      const after = ws.getDocument('task-1')!;
+      expect(after.path).toBe('items/ship-demo.md');
+      expect(after.frontmatter.id).toBe('task-1');
+      expect(readFileSync(join(root, 'items/ship-demo.md'), 'utf8')).toContain('id: task-1');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('rejects directories that are not Git repositories', async () => {
     const root = tempDir();
     try {

@@ -149,6 +149,24 @@ export class Workspace {
     return { commit, changed: true };
   }
 
+  /** Rename/move a document, preserving its id (arch §3.1 identity). */
+  async rename(id: DocumentId, newPath: string): Promise<{ commit: string }> {
+    const doc = this.getDocument(id);
+    if (!doc) throw new Error('Document not found: ' + id);
+    const oldPath = doc.path;
+    const absNew = join(this.ref.rootPath, newPath);
+    mkdirSync(dirname(absNew), { recursive: true });
+    git(this.ref.rootPath, ['mv', oldPath, newPath]);
+    git(this.ref.rootPath, ['commit', '-q', '-m', 'rename ' + oldPath + ' -> ' + newPath]);
+    const commit = git(this.ref.rootPath, ['rev-parse', 'HEAD']);
+    const source = readFileSync(absNew, 'utf8');
+    const updated = parseMarkdown(source, { path: newPath });
+    const idx = this.documents.findIndex((d) => d.id === id);
+    if (idx >= 0) this.documents[idx] = updated;
+    else this.documents.push(updated);
+    return { commit };
+  }
+
   /** Commit history for a document path, oldest first. */
   async history(id: DocumentId): Promise<CommitInfo[]> {
     const doc = this.getDocument(id);

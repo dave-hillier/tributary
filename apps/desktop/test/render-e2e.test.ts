@@ -62,6 +62,12 @@ describe('Stage 1 slice: the Git round-trip', () => {
       expect(created.frontmatter.kind).toBe('work-item');
       expect(created.frontmatter.assignee).toBe('carol');
       expect(service.listWorkItems().map((w) => w.id)).toContain(created.id);
+
+      // Rename preserves id (board still shows the item by id).
+      const renamed = await service.renameDocument('task-2', 'items/write-tests.md');
+      expect(renamed.path).toBe('items/write-tests.md');
+      expect(renamed.frontmatter.id).toBe('task-2');
+      expect(service.listWorkItems().find((w) => w.id === 'task-2')?.title).toBe('Write tests');
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

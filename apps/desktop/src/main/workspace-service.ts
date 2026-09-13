@@ -80,6 +80,15 @@ export class WorkspaceService {
     return workspace.getDocument(id) ?? updated;
   }
 
+  async renameDocument(id: DocumentId, newPath: string): Promise<Document> {
+    const workspace = this.workspace;
+    const index = this.index;
+    if (!workspace || !index) throw new Error('Workspace not open');
+    await workspace.rename(id, newPath);
+    index.rebuild(workspace.documents);
+    return workspace.getDocument(id)!;
+  }
+
   async createWorkItem(input: { title: string; status?: string; assignee?: string; priority?: string; project?: string }): Promise<Document> {
     const workspace = this.workspace;
     const index = this.index;

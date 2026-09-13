@@ -14,7 +14,6 @@ mkdirSync(OUT, { recursive: true });
 
 const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png' };
 
-// --- static server for the built renderer ---
 const server = createServer((req, res) => {
   const url = new URL(req.url, 'http://localhost');
   let p = join(BUNDLE, url.pathname === '/' ? 'index.html' : url.pathname.slice(1));
@@ -30,49 +29,64 @@ const server = createServer((req, res) => {
 await new Promise((r) => server.listen(0, r));
 const port = server.address().port;
 
-// --- real workspace over a real temp git repo ---
 const root = mkdtempSync(join(tmpdir(), 'tributary-cap-'));
 await createDemoWorkspace(root);
 const service = new WorkspaceService();
 await service.open(root);
 
-// --- browser + injected real service ---
 const browser = await chromium.launch({ channel: 'chrome', headless: true });
 const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
-await context.exposeFunction('__getDocument', (id) => service.getDocument(id));
-await context.exposeFunction('__listDocuments', () => service.listDocuments());
-await context.exposeFunction('__saveDocument', (doc, msg) => service.saveDocument(doc, msg));
-await context.exposeFunction('__history', (id) => service.history(id));
-await context.exposeFunction('__resolveLink', (t) => service.resolveLink(t));
-await context.exposeFunction('__search', (q) => service.search(q));
-await context.exposeFunction('__listWorkItems', () => service.listWorkItems());
-await context.exposeFunction('__updateWorkItem', (id, patch) => service.updateWorkItem(id, patch));
-await context.exposeFunction('__createWorkItem', (input) => service.createWorkItem(input));
-await context.addInitScript(() => {
-  window.tributary = {
-    getDocument: (id) => window.__getDocument(id),
-    listDocuments: () => window.__listDocuments(),
-    saveDocument: (doc, msg) => window.__saveDocument(doc, msg),
-    history: (id) => window.__history(id),
-    resolveLink: (t) => window.__resolveLink(t),
-    search: (q) => window.__search(q),
-    listWorkItems: () => window.__listWorkItems(),
-    updateWorkItem: (id, patch) => window.__updateWorkItem(id, patch),
-    createWorkItem: (input) => window.__createWorkItem(input),
-  };
-});
+const expose = {
+  getDocument: (id) => service.getDocument(id),
+  listDocuments: () => service.listDocuments(),
+  saveDocument: (doc, msg) => service.saveDocument(doc, msg),
+  history: (id) => service.history(id),
+  resolveLink: (t) => service.resolveLink(t),
+  search: (q) => service.search(q),
+  listWorkItems: () => service.listWorkItems(),
+  updateWorkItem: (id, patch) => service.updateWorkItem(id, patch),
+  createWorkItem: (input) => service.createWorkItem(input),
+  renameDocument: (id, p) => service.renameDocument(id, p),
+};
+for (const [k, fn] of Object.entries(expose)) {
+  await context.exposeFunction('__' + k, fn);
+}
+await context.addInitScript((keys) => {
+  const api = {};
+  for (const k of keys) api[k] = (...args) => window['__' + k](...args);
+  window.tributary = api;
+}, Object.keys(expose));
 
 const page = await context.newPage();
 await page.goto(`http://localhost:${port}/`);
 await page.waitForSelector('h2', { timeout: 10000 });
 await page.waitForTimeout(600);
 
+let failed = false;
+async function verify(text) {
+  const count = await page.getByText(text).count();
+  if (count > 0) console.log('verify ok: ' + text);
+  else { console.error('VERIFY FAILED: ' + text); failed = true; }
+}
 async function shot(name) {
   await page.screenshot({ path: join(OUT, name + '.png'), fullPage: true });
-  console.log('captured', name + '.png');
+  console.log('captured ' + name + '.png');
 }
 
+// 01 board baseline
 await shot('01-board');
+await verify('Ship the demo');
+
+// 02 rename a work item, board still shows it by id
+await page.getByRole('button', { name: 'Ship the demo' }).first().click();
+await page.waitForTimeout(400);
+await page.getByPlaceholder('Rename to path (e.g. items/foo.md)').fill('items/ship-demo.md');
+await page.getByRole('button', { name: 'Rename' }).click();
+await page.waitForTimeout(600);
+await shot('02-renamed');
+await verify('Ship the demo');
 
 await browser.close();
 server.close();
+if (failed) { console.error('CAPTURE VERIFY FAILURES'); process.exit(1); }
+console.log('captures done');

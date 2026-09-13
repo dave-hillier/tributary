@@ -33,6 +33,7 @@ interface TributaryApi {
   listWorkItems: () => Promise<WorkItem[]>;
   updateWorkItem: (id: string, patch: Record<string, unknown>) => Promise<Document>;
   createWorkItem: (input: NewWorkItemInput) => Promise<Document>;
+  renameDocument: (id: string, newPath: string) => Promise<Document>;
 }
 
 declare global {
@@ -51,6 +52,7 @@ function App() {
   const [results, setResults] = useState<Document[]>([]);
   const [workItems, setWorkItems] = useState<WorkItem[]>([]);
   const [newTitle, setNewTitle] = useState('');
+  const [renamePath, setRenamePath] = useState('');
 
   const load = async (id: string): Promise<void> => {
     const d = await window.tributary.getDocument(id);
@@ -115,6 +117,15 @@ function App() {
     if (!newTitle.trim()) return;
     await window.tributary.createWorkItem({ title: newTitle.trim() });
     setNewTitle('');
+    await loadWorkItems();
+    setDocs(await window.tributary.listDocuments());
+  };
+
+  const onRename = async (): Promise<void> => {
+    if (!current || !renamePath.trim()) return;
+    await window.tributary.renameDocument(current.id, renamePath.trim());
+    setRenamePath('');
+    await load(current.id);
     await loadWorkItems();
     setDocs(await window.tributary.listDocuments());
   };
@@ -190,6 +201,10 @@ function App() {
           <textarea value={source} onChange={(e) => setSource(e.target.value)} rows={10} style={{ width: '100%' }} />
           <button onClick={() => void onSave()}>Save (checkpoint)</button>
           {savedMsg ? <p>{savedMsg}</p> : null}
+          <div>
+            <input value={renamePath} onChange={(e) => setRenamePath(e.target.value)} placeholder="Rename to path (e.g. items/foo.md)" />
+            <button onClick={() => void onRename()}>Rename</button>
+          </div>
           <h3>History</h3>
           <ul>
             {history.map((h) => (
