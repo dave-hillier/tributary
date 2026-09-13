@@ -40,6 +40,10 @@ describe('Stage 1 slice: the Git round-trip', () => {
       expect(hist.length).toBe(before + 1);
       expect(hist[hist.length - 1].message).toBe('edit hello');
 
+      // Diff view: the last commit's patch for the edited document.
+      const diff = await service.diff('notes/hello');
+      expect(diff).toContain('A simple wiki document (edited)');
+
       // Full-text search over the SQLite+FTS5 index.
       expect(service.search('workspace').map((d) => d.id)).toContain('index');
       expect(service.search('Ship').map((d) => d.id)).toContain('task-1');

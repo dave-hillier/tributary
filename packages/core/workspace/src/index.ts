@@ -167,6 +167,13 @@ export class Workspace {
     return { commit };
   }
 
+  /** Last commit's patch (diff) for a document. */
+  async diff(id: DocumentId): Promise<string> {
+    const doc = this.getDocument(id);
+    if (!doc) return '';
+    return git(this.ref.rootPath, ['log', '-p', '-1', '--format=', '--', doc.path]);
+  }
+
   /** Commit history for a document path, oldest first. */
   async history(id: DocumentId): Promise<CommitInfo[]> {
     const doc = this.getDocument(id);

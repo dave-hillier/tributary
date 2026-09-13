@@ -43,6 +43,10 @@ export class WorkspaceService {
     return this.index?.resolve(target) ?? null;
   }
 
+  diff(id: DocumentId): Promise<string> {
+    return this.workspace?.diff(id) ?? Promise.resolve('');
+  }
+
   backlinks(id: DocumentId): Document[] {
     const ids = this.index?.backlinks(id) ?? [];
     return ids

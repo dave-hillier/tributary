@@ -43,6 +43,7 @@ const expose = {
   history: (id) => service.history(id),
   resolveLink: (t) => service.resolveLink(t),
   backlinks: (id) => service.backlinks(id),
+  diff: (id) => service.diff(id),
   search: (q) => service.search(q),
   listWorkItems: () => service.listWorkItems(),
   updateWorkItem: (id, patch) => service.updateWorkItem(id, patch),
@@ -82,6 +83,7 @@ await verify('Ship the demo');
 await page.getByRole('button', { name: 'Ship the demo' }).first().click();
 await page.waitForTimeout(400);
 await verify('Linked from');
+await verify('Diff (last change)');
 await shot('02-backlinks');
 
 // 03 rename the same item; board still shows it by id
@@ -92,7 +94,7 @@ await shot('03-renamed');
 await verify('Ship the demo');
 
 // 04 board filters: status = done
-await page.getByRole('combobox').first().selectOption('done');
+await page.getByLabel('status filter').selectOption('done');
 await page.waitForTimeout(400);
 await shot('04-filtered');
 await verify('Write tests');

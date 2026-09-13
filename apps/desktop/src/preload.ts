@@ -15,6 +15,7 @@ const api = {
   history: (id: string): Promise<HistoryEntry[]> => ipcRenderer.invoke('workspace:history', id),
   resolveLink: (target: string): Promise<Document | null> => ipcRenderer.invoke('workspace:resolveLink', target),
   backlinks: (id: string): Promise<Document[]> => ipcRenderer.invoke('workspace:backlinks', id),
+  diff: (id: string): Promise<string> => ipcRenderer.invoke('workspace:diff', id),
   search: (query: string): Promise<Document[]> => ipcRenderer.invoke('workspace:search', query),
   listWorkItems: (): Promise<WorkItem[]> => ipcRenderer.invoke('workspace:listWorkItems'),
   updateWorkItem: (id: string, patch: Record<string, unknown>): Promise<Document> =>

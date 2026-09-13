@@ -117,6 +117,21 @@ describe('Workspace (real temp Git repo)', () => {
     }
   });
 
+  it('returns the last commit diff for a document', async () => {
+    const root = tempDir();
+    try {
+      const ws = await createDemoWorkspace(root);
+      const doc = ws.getDocument('notes/hello')!;
+      doc.source = doc.source!.replace('# Hello', '# Hello (edited)');
+      await ws.save(doc, 'edit hello');
+      const diff = await ws.diff('notes/hello');
+      expect(diff).toContain('+# Hello (edited)');
+      expect(diff).toContain('-# Hello');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('renames a document and preserves its id', async () => {
     const root = tempDir();
     try {

@@ -39,6 +39,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('workspace:history', (_evt, id: string) => service.history(id));
   ipcMain.handle('workspace:resolveLink', (_evt, target: string) => service.resolveLink(target));
   ipcMain.handle('workspace:backlinks', (_evt, id: string) => service.backlinks(id));
+  ipcMain.handle('workspace:diff', (_evt, id: string) => service.diff(id));
   ipcMain.handle('workspace:search', (_evt, query: string) => service.search(query));
   ipcMain.handle('workspace:listWorkItems', () => service.listWorkItems());
   ipcMain.handle('workspace:updateWorkItem', (_evt, id: string, patch: Record<string, unknown>) => service.updateWorkItem(id, patch));

@@ -30,6 +30,7 @@ interface TributaryApi {
   history: (id: string) => Promise<HistoryEntry[]>;
   resolveLink: (target: string) => Promise<Document | null>;
   backlinks: (id: string) => Promise<Document[]>;
+  diff: (id: string) => Promise<string>;
   search: (query: string) => Promise<Document[]>;
   listWorkItems: () => Promise<WorkItem[]>;
   updateWorkItem: (id: string, patch: Record<string, unknown>) => Promise<Document>;
@@ -55,6 +56,7 @@ function App() {
   const [newTitle, setNewTitle] = useState('');
   const [renamePath, setRenamePath] = useState('');
   const [backlinks, setBacklinks] = useState<Document[]>([]);
+  const [diff, setDiff] = useState('');
   const [filters, setFilters] = useState<{ status?: string; assignee?: string; priority?: string; project?: string }>({});
 
   const load = async (id: string): Promise<void> => {
@@ -62,8 +64,9 @@ function App() {
     if (d) {
       setCurrent(d);
       setSource(d.source ?? '');
-      setHistory(await window.tributary.history(id));
-      setBacklinks(await window.tributary.backlinks(id));
+      setHistory(await window.tributary.history(id).catch(() => []));
+      setBacklinks(await window.tributary.backlinks(id).catch(() => []));
+      setDiff(await window.tributary.diff(id).catch(() => ''));
     }
   };
 
@@ -150,25 +153,25 @@ function App() {
     <div>
       <h2>Work items</h2>
       <div style={{ margin: '0.5rem 0' }}>
-        <select value={filters.status ?? ''} onChange={(e) => setFilters({ ...filters, status: e.target.value || undefined })}>
+        <select aria-label="status filter" value={filters.status ?? ''} onChange={(e) => setFilters({ ...filters, status: e.target.value || undefined })}>
           <option value="">all statuses</option>
           {statuses.map((s) => (
             <option key={s} value={s}>{s}</option>
           ))}
         </select>{' '}
-        <select value={filters.assignee ?? ''} onChange={(e) => setFilters({ ...filters, assignee: e.target.value || undefined })}>
+        <select aria-label="assignee filter" value={filters.assignee ?? ''} onChange={(e) => setFilters({ ...filters, assignee: e.target.value || undefined })}>
           <option value="">all assignees</option>
           {assignees.map((a) => (
             <option key={a} value={a}>{a}</option>
           ))}
         </select>{' '}
-        <select value={filters.priority ?? ''} onChange={(e) => setFilters({ ...filters, priority: e.target.value || undefined })}>
+        <select aria-label="priority filter" value={filters.priority ?? ''} onChange={(e) => setFilters({ ...filters, priority: e.target.value || undefined })}>
           <option value="">all priorities</option>
           {priorities.map((a) => (
             <option key={a} value={a}>{a}</option>
           ))}
         </select>{' '}
-        <select value={filters.project ?? ''} onChange={(e) => setFilters({ ...filters, project: e.target.value || undefined })}>
+        <select aria-label="project filter" value={filters.project ?? ''} onChange={(e) => setFilters({ ...filters, project: e.target.value || undefined })}>
           <option value="">all projects</option>
           {projects.map((a) => (
             <option key={a} value={a}>{a}</option>
@@ -253,6 +256,8 @@ function App() {
               </li>
             ))}
           </ul>
+          <h3>Diff (last change)</h3>
+          <pre style={{ whiteSpace: 'pre-wrap' }}>{diff}</pre>
           <h3>History</h3>
           <ul>
             {history.map((h) => (
