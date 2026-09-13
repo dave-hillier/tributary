@@ -91,6 +91,12 @@ await page.waitForTimeout(600);
 await shot('03-renamed');
 await verify('Ship the demo');
 
+// 04 board filters: status = done
+await page.getByRole('combobox').first().selectOption('done');
+await page.waitForTimeout(400);
+await shot('04-filtered');
+await verify('Write tests');
+
 await browser.close();
 server.close();
 if (failed) { console.error('CAPTURE VERIFY FAILURES'); process.exit(1); }

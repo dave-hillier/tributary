@@ -55,6 +55,7 @@ function App() {
   const [newTitle, setNewTitle] = useState('');
   const [renamePath, setRenamePath] = useState('');
   const [backlinks, setBacklinks] = useState<Document[]>([]);
+  const [filters, setFilters] = useState<{ status?: string; assignee?: string; priority?: string; project?: string }>({});
 
   const load = async (id: string): Promise<void> => {
     const d = await window.tributary.getDocument(id);
@@ -134,15 +135,51 @@ function App() {
   };
 
   const statuses = [...new Set(workItems.map((w) => w.status))].sort();
+  const assignees = [...new Set(workItems.map((w) => w.assignee).filter((x): x is string => x != null))].sort();
+  const priorities = [...new Set(workItems.map((w) => w.priority).filter((x): x is string => x != null))].sort();
+  const projects = [...new Set(workItems.map((w) => w.project).filter((x): x is string => x != null))].sort();
+  const filteredItems = workItems.filter(
+    (w) =>
+      (!filters.status || w.status === filters.status) &&
+      (!filters.assignee || w.assignee === filters.assignee) &&
+      (!filters.priority || w.priority === filters.priority) &&
+      (!filters.project || w.project === filters.project)
+  );
 
   return (
     <div>
       <h2>Work items</h2>
+      <div style={{ margin: '0.5rem 0' }}>
+        <select value={filters.status ?? ''} onChange={(e) => setFilters({ ...filters, status: e.target.value || undefined })}>
+          <option value="">all statuses</option>
+          {statuses.map((s) => (
+            <option key={s} value={s}>{s}</option>
+          ))}
+        </select>{' '}
+        <select value={filters.assignee ?? ''} onChange={(e) => setFilters({ ...filters, assignee: e.target.value || undefined })}>
+          <option value="">all assignees</option>
+          {assignees.map((a) => (
+            <option key={a} value={a}>{a}</option>
+          ))}
+        </select>{' '}
+        <select value={filters.priority ?? ''} onChange={(e) => setFilters({ ...filters, priority: e.target.value || undefined })}>
+          <option value="">all priorities</option>
+          {priorities.map((a) => (
+            <option key={a} value={a}>{a}</option>
+          ))}
+        </select>{' '}
+        <select value={filters.project ?? ''} onChange={(e) => setFilters({ ...filters, project: e.target.value || undefined })}>
+          <option value="">all projects</option>
+          {projects.map((a) => (
+            <option key={a} value={a}>{a}</option>
+          ))}
+        </select>
+      </div>
       <div style={{ display: 'flex', gap: '1rem' }}>
         {statuses.map((status) => (
           <div key={status} style={{ flex: 1, border: '1px solid #ccc', padding: '0.5rem' }}>
             <h3>{status}</h3>
-            {workItems
+            {filteredItems
               .filter((w) => w.status === status)
               .map((w) => (
                 <div key={w.id} style={{ marginBottom: '0.5rem' }}>
