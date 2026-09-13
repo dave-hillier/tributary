@@ -21,7 +21,7 @@ describe('Stage 1 slice: the Git round-trip', () => {
       const home = service.getDocument('index');
       expect(home).toBeTruthy();
       const html = renderToString(createElement(DocumentView, { document: home! }));
-      expect(html).toContain('data-replot');
+      expect(html).toContain('language-tsx');
       expect(html).toContain('data-transclusion');
       expect(html).toContain('notes/hello');
 

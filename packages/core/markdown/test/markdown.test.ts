@@ -60,18 +60,15 @@ describe('dialect features', () => {
     expect(tr.heading).toBe('sec');
   });
 
-  it('parses typed fences and leaves plain fences source-only', () => {
+  it('parses js/ts/jsx/tsx fences as cells, with source opting out', () => {
     const doc = parseMarkdown(
-      '\u0060\u0060\u0060replot\n{"x":1}\n\u0060\u0060\u0060\n\n\u0060\u0060\u0060js cell=foo\n1+1\n\u0060\u0060\u0060\n\n\u0060\u0060\u0060js\nplain\n\u0060\u0060\u0060\n',
+      '\u0060\u0060\u0060tsx\n<x/>\n\u0060\u0060\u0060\n\n\u0060\u0060\u0060js\n1+1\n\u0060\u0060\u0060\n\n\u0060\u0060\u0060js source\nplain\n\u0060\u0060\u0060\n\n\u0060\u0060\u0060python\nprint(1)\n\u0060\u0060\u0060\n',
       { path: 'x.md' }
     );
-    const types = doc.root.children.map((c) => c.type);
-    expect(types).toContain('replotBlock');
-    expect(types).toContain('cellBlock');
-    expect(types).toContain('code');
-    const cell = doc.root.children.find((c) => c.type === 'cellBlock') as { cellName?: string; lang?: string };
-    expect(cell.cellName).toBe('foo');
-    expect(cell.lang).toBe('js');
+    const children = doc.root.children as Array<{ type: string; lang?: string }>;
+    expect(children.map((c) => c.type)).toEqual(['cell', 'cell', 'code', 'code']);
+    expect(children[0].lang).toBe('tsx');
+    expect(children[1].lang).toBe('js');
   });
 });
 

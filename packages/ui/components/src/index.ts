@@ -25,8 +25,7 @@ import type {
   Html,
   WikiLink,
   Transclusion,
-  ReplotBlock,
-  CellBlock,
+  Cell,
 } from '@tributary/api';
 import { createDocumentRenderer } from '@tributary/render';
 import type { ComponentRegistry, NodeComponent } from '@tributary/render';
@@ -207,28 +206,13 @@ const transclusionComponent: NodeComponent = ({ node }) => {
   );
 };
 
-const replotBlockComponent: NodeComponent = ({ node }) => {
-  const block = node as ReplotBlock;
-  const source = literalString(block.value);
-  // Static: the declarative value/spec is shown as source, never executed.
-  return createElement(
-    'div',
-    { 'data-replot': source, className: 'replot-block' },
-    createElement(
-      'pre',
-      null,
-      createElement('code', { className: 'language-replot' }, source),
-    ),
-  );
-};
-
-const cellBlockComponent: NodeComponent = ({ node }) => {
-  const cell = node as CellBlock;
+const cellComponent: NodeComponent = ({ node }) => {
+  const cell = node as Cell;
   const source = literalString(cell.value);
   // Source-only until Stage 3: executable cells render as a plain code fence.
   return createElement(
     'pre',
-    { className: 'cell-block', 'data-cell-name': cell.cellName || undefined },
+    { className: 'cell' },
     createElement('code', { className: `language-${cell.lang}` }, source),
   );
 };
@@ -265,8 +249,7 @@ export const defaultRegistry: ComponentRegistry = {
   imageReference: imageReferenceComponent,
   wikiLink: wikiLinkComponent,
   transclusion: transclusionComponent,
-  replotBlock: replotBlockComponent,
-  cellBlock: cellBlockComponent,
+  cell: cellComponent,
 };
 
 /**

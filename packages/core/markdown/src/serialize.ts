@@ -17,10 +17,7 @@ export const dialectHandlers = {
   transclusion(node: { target: string; heading?: string }) {
     return '![[' + node.target + (node.heading ? '#' + node.heading : '') + ']]';
   },
-  replotBlock(node: FenceNode) {
-    return fence(node);
-  },
-  cellBlock(node: FenceNode) {
+  cell(node: FenceNode) {
     return fence(node);
   },
 };

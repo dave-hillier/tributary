@@ -69,38 +69,23 @@ describe('DocumentView', () => {
     expect(html).toContain('<a href="notes/bar" class="wiki-link">notes/bar</a>');
   });
 
-  it('renders a replotBlock statically without executing it', () => {
-    const html = renderDoc({
-      type: 'root',
-      children: [{ type: 'replotBlock', value: 'BarY x=service y=count' }],
-    });
-
-    expect(html).toContain('data-replot="BarY x=service y=count"');
-    expect(html).toContain(
-      '<code class="language-replot">BarY x=service y=count</code>',
-    );
-    // Nothing was executed: no chart SVG was produced.
-    expect(html).not.toContain('<svg');
-  });
-
-  it('renders a cellBlock as a source-only code fence', () => {
+  it('renders a cell as a source-only code fence', () => {
     const html = renderDoc({
       type: 'root',
       children: [
         {
-          type: 'cellBlock',
-          lang: 'js',
-          cellName: 'deployments',
-          value: 'const d = await workspace.deployments();',
+          type: 'cell',
+          lang: 'tsx',
+          value: '<Replot><BarY data={[[0,0],[1,2]]} /></Replot>',
         },
       ],
     });
 
     expect(html).toContain('<pre');
-    expect(html).toContain(
-      '<code class="language-js">const d = await workspace.deployments();</code>',
-    );
-    expect(html).toContain('data-cell-name="deployments"');
+    expect(html).toContain('<code class="language-tsx">');
+    expect(html).toContain('&lt;Replot&gt;');
+    // Nothing executed: no chart SVG was produced.
+    expect(html).not.toContain('<svg');
   });
 
   it('renders a transclusion as a placeholder div', () => {

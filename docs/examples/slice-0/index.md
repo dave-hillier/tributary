@@ -5,14 +5,14 @@ kind: index
 
 # Tributary Demo
 
-Welcome to the demo workspace. This home page is mostly links plus one embedded
-chart.
+Welcome to the demo workspace. This home page is mostly links plus one TSX
+cell.
 
 - [[notes/hello|Hello]]
 - [[items/task-1|Ship the demo]]
 
 ![[notes/hello]]
 
-```replot
-{"type": "line", "data": [[0, 0], [1, 2], [2, 1]]}
+```tsx
+<strong>Tributary renders TSX cells here.</strong>
 ```

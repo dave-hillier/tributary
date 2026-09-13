@@ -8,7 +8,7 @@ import { inlineLinksPlugin } from './inline.js';
 import { typedFencesPlugin } from './blocks.js';
 import { dialectHandlers } from './serialize.js';
 
-export type { WikiLink, Transclusion, ReplotBlock, CellBlock } from '@tributary/api';
+export type { WikiLink, Transclusion, Cell } from '@tributary/api';
 
 export interface ParseOptions {
   /** Workspace-relative path, used to derive a stable id when frontmatter lacks one. */

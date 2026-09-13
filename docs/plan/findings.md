@@ -124,13 +124,13 @@ slices; use subagents only for clearly separable, low-coupling work.
 ### 10. Medium — Dialect drift: `replotBlock` already implemented, now superseded
 
 ADR-004 collapses `replotBlock`/`cellBlock` into a single `cell` node, with
-`tsx` as the native rich-output language. The current code
-(`@tributary/api`, `markdown`, `render`, `components`, demo fixtures)
-still ships `replotBlock` and `cellBlock`, and the Stage 0 notebook spike
-uses `with`+Proxy dependency discovery rather than a compiled-JS-AST extractor.
+`tsx` as the native rich-output language.
 
-**Disposition:** migrate the block nodes to one `cell` node, adopt esbuild for
-cell compilation, and move dependency extraction onto the compiled AST (Stage 3).
+**Fixed:** the block nodes are collapsed to a single `cell` node across
+`@tributary/api`, `markdown`, `render`, `components` and the demo
+fixtures; `js`/`ts`/`jsx`/`tsx` fences are cells by default with a
+`source` opt-out. Still pending for Stage 3: esbuild cell compilation and
+dependency extraction on the compiled AST (replacing the `with`+Proxy spike).
 
 ## Decisions
 

@@ -7,11 +7,11 @@ kind: wiki
 
 A simple wiki document that links to a [[items/task-1|work item]].
 
-```js
-// A source-only code fence (no cell= meta): never executed.
+```js source
+// A static snippet: "source" opts out of execution.
 const x = 1;
 ```
 
-```js cell=answer
-answer = 6 * 7;
+```js
+6 * 7
 ```

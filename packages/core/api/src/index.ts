@@ -96,27 +96,17 @@ export interface Transclusion extends Parent {
   children: PhrasingContent[];
 }
 
-/** A `replot` typed fenced block (declarative value/spec, static in Stage 0). */
-export interface ReplotBlock extends Literal {
-  type: 'replotBlock';
-  lang?: string;
-  meta?: string;
-}
-
-/** An executable cell fence, e.g. ```js cell=name``` (source-only until Stage 3). */
-export interface CellBlock extends Literal {
-  type: 'cellBlock';
-  /** Executable language, e.g. "js". */
+/** An executable cell: a fenced block whose language is js/ts/jsx/tsx (ADR-004). */
+export interface Cell extends Literal {
+  type: 'cell';
+  /** Executable language: 'js' | 'ts' | 'jsx' | 'tsx'. */
   lang: string;
-  /** Optional stable cell name from `cell=name` meta. */
-  cellName?: string;
   meta?: string;
 }
 
 declare module 'mdast' {
   interface BlockContentMap {
-    replotBlock: ReplotBlock;
-    cellBlock: CellBlock;
+    cell: Cell;
   }
   interface PhrasingContentMap {
     wikiLink: WikiLink;
