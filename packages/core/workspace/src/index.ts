@@ -1,6 +1,6 @@
 import { readFileSync, writeFileSync, readdirSync, mkdirSync, existsSync } from 'node:fs';
 import { join, relative, dirname, sep } from 'node:path';
-import { parseMarkdown, stringifyMarkdown } from '@tributary/markdown';
+import { parseMarkdown, stringifyMarkdown, updateFrontmatter } from '@tributary/markdown';
 import type { Document, DocumentId, WorkspaceRef } from '@tributary/api';
 import { git, isGitRepo, ensureRepo } from './git.js';
 import { DEMO_FILES } from './seed.js';
@@ -101,7 +101,12 @@ export class Workspace {
   /** Write a document and record a semantic checkpoint commit (skips no-ops). */
   async save(doc: Document, message?: string): Promise<{ commit: string | null; changed: boolean }> {
     const abs = join(this.ref.rootPath, doc.path);
-    const newSource = doc.source ?? stringifyMarkdown(doc);
+    let newSource = doc.source ?? stringifyMarkdown(doc);
+    // Backfill the current (path-derived) id into frontmatter so it survives
+    // renames (finding 2). Persisting the existing id avoids changing identity.
+    if (!doc.frontmatter.id) {
+      newSource = updateFrontmatter(newSource, { id: doc.id });
+    }
 
     // No-op skip: don't commit when content is unchanged.
     const currentDisk = existsSync(abs) ? readFileSync(abs, 'utf8') : null;

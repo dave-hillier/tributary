@@ -70,16 +70,32 @@ describe('Workspace (real temp Git repo)', () => {
     }
   });
 
-  it('skips a commit when content is unchanged (no-op)', async () => {
+  it('backfills the current id into frontmatter on save', async () => {
     const root = tempDir();
     try {
       const ws = await createDemoWorkspace(root);
       const doc = ws.getDocument('notes/hello')!;
-      const before = (await ws.history('notes/hello')).length;
+      expect(doc.frontmatter.id).toBeUndefined();
+      doc.source = doc.source!.replace('# Hello', '# Hello (edited)');
+      await ws.save(doc, 'edit hello');
+      const saved = ws.getDocument('notes/hello')!;
+      expect(saved.frontmatter.id).toBe('notes/hello');
+      expect(readFileSync(join(root, 'notes/hello.md'), 'utf8')).toContain('id: notes/hello');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('skips a commit when content is unchanged (no-op)', async () => {
+    const root = tempDir();
+    try {
+      const ws = await createDemoWorkspace(root);
+      const doc = ws.getDocument('task-1')!; // already has frontmatter.id, so no backfill
+      const before = (await ws.history('task-1')).length;
       const result = await ws.save(doc, 'no-op');
       expect(result.changed).toBe(false);
       expect(result.commit).toBeNull();
-      expect((await ws.history('notes/hello')).length).toBe(before);
+      expect((await ws.history('task-1')).length).toBe(before);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
