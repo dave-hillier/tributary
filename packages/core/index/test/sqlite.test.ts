@@ -57,4 +57,30 @@ describe('SqliteIndex (better-sqlite3 + FTS5)', () => {
     expect(idx.links('index')).toEqual(linksBefore);
     idx.close();
   });
+
+  it('ID-based resolution survives a rename (identity is the id, not the path)', () => {
+    const idx = new SqliteIndex(':memory:');
+    const renamed = docs.map((d) => (d.id === 'task-1' ? { ...d, path: 'items/renamed.md' } : d));
+    idx.rebuild(renamed);
+    // The new path resolves; the old path no longer does.
+    expect(idx.resolve('items/renamed.md')?.id).toBe('task-1');
+    expect(idx.resolve('items/task-1.md')).toBeUndefined();
+    // The id itself still resolves, and the projection stays keyed on it.
+    expect(idx.resolve('task-1')?.id).toBe('task-1');
+    expect(idx.workItems().map((w) => w.id)).toContain('task-1');
+    expect(idx.workItems().find((w) => w.id === 'task-1')?.path).toBe('items/renamed.md');
+    idx.close();
+  });
+
+  it('the work-item projection reflects frontmatter after rebuild', () => {
+    const idx = new SqliteIndex(':memory:');
+    const updated = docs.map((d) =>
+      d.id === 'task-1' ? { ...d, frontmatter: { ...d.frontmatter, status: 'done' } } : d,
+    );
+    idx.rebuild(updated);
+    const items = idx.workItems();
+    expect(items).toHaveLength(1);
+    expect(items[0].status).toBe('done');
+    idx.close();
+  });
 });
