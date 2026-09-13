@@ -56,6 +56,7 @@ const expose = {
   renameDocument: (id, p) => service.renameDocument(id, p),
   addRemote: (url, name) => service.addRemote(url, name),
   sync: () => service.sync(),
+  evaluateCell: (lang, source) => service.evaluateCell(lang, source),
 };
 for (const [k, fn] of Object.entries(expose)) {
   await context.exposeFunction('__' + k, fn);
@@ -85,6 +86,9 @@ async function shot(name) {
 // 01 board baseline
 await shot('01-board');
 await verify('Ship the demo');
+const strongCount = await page.locator('strong', { hasText: 'Tributary renders TSX cells here' }).count();
+if (strongCount > 0) console.log('verify ok: tsx cell rendered as <strong>');
+else { console.error('VERIFY FAILED: tsx cell <strong> output'); failed = true; }
 
 // 02 backlinks: load a work item and show what links to it
 await page.getByRole('button', { name: 'Ship the demo' }).first().click();

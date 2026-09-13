@@ -1,7 +1,8 @@
 import { StrictMode, useEffect, useRef, useState } from 'react';
 import type { MouseEvent } from 'react';
 import { createRoot } from 'react-dom/client';
-import { DocumentView } from '@tributary/components';
+import { DocumentView, CellContext } from '@tributary/components';
+import type { CellEvaluator, CellResult } from '@tributary/components';
 import CodeMirror from '@uiw/react-codemirror';
 import { markdown } from '@codemirror/lang-markdown';
 import type { Document, WorkItem } from '@tributary/api';
@@ -40,6 +41,7 @@ interface TributaryApi {
   renameDocument: (id: string, newPath: string) => Promise<Document>;
   addRemote: (url: string, name?: string) => Promise<void>;
   sync: () => Promise<string>;
+  evaluateCell: (lang: string, source: string) => Promise<CellResult>;
 }
 
 declare global {
@@ -47,6 +49,10 @@ declare global {
     tributary: TributaryApi;
   }
 }
+
+const cellEvaluator: CellEvaluator = {
+  evaluate: (lang, source) => window.tributary.evaluateCell(lang, source),
+};
 
 function App() {
   const [docs, setDocs] = useState<Document[]>([]);
@@ -283,7 +289,9 @@ function App() {
         <main>
           <h1>{current.frontmatter.title ?? current.id}</h1>
           <div onClick={onDocClick}>
-            <DocumentView document={current} />
+            <CellContext.Provider value={cellEvaluator}>
+              <DocumentView document={current} />
+            </CellContext.Provider>
           </div>
           <hr />
           <CodeMirror value={source} onChange={(v) => onSourceChange(v)} extensions={[markdown()]} height="240px" />

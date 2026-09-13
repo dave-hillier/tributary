@@ -11,8 +11,8 @@
  * survives a conservative allow-list sanitizer, otherwise it is skipped.
  */
 
-import { createElement, Fragment } from 'react';
-import type { ReactElement } from 'react';
+import { createElement, Fragment, useEffect, useState, createContext, useContext } from 'react';
+import type { ReactElement, ReactNode } from 'react';
 import type {
   Document,
   Heading,
@@ -27,6 +27,7 @@ import type {
   Transclusion,
   Cell,
 } from '@tributary/api';
+import type { CellResult } from '@tributary/notebook';
 import { createDocumentRenderer } from '@tributary/render';
 import type { ComponentRegistry, NodeComponent } from '@tributary/render';
 
@@ -206,15 +207,73 @@ const transclusionComponent: NodeComponent = ({ node }) => {
   );
 };
 
+export interface CellEvaluator {
+  evaluate: (lang: string, source: string) => Promise<CellResult>;
+}
+
+export const CellContext = createContext<CellEvaluator | null>(null);
+
+function deserializeNode(v: unknown): ReactNode {
+  if (Array.isArray(v)) return v.map(deserializeNode);
+  if (v && typeof v === 'object' && 'kind' in v) {
+    const r = v as CellResult;
+    if (r.kind === 'element') return deserializeElement(r.type, r.props);
+    if (r.kind === 'value') return r.text;
+    if (r.kind === 'error') return r.message;
+    return null;
+  }
+  return v as ReactNode;
+}
+
+function deserializeElement(type: string, props: Record<string, unknown>): ReactElement {
+  const p: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(props)) p[k] = deserializeNode(v);
+  return createElement(type, p);
+}
+
+function CellView({ cell }: { cell: Cell }): ReactElement {
+  const evaluator = useContext(CellContext);
+  const [result, setResult] = useState<CellResult | null>(null);
+
+  useEffect(() => {
+    if (!evaluator) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await evaluator.evaluate(cell.lang, cell.value as string);
+        if (!cancelled) setResult(r);
+      } catch (e) {
+        if (!cancelled) setResult({ kind: 'error', message: String(e) });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [evaluator, cell.lang, cell.value]);
+
+  if (!evaluator) {
+    const source = cell.value as string;
+    return createElement(
+      'pre',
+      { className: 'cell' },
+      createElement('code', { className: 'language-' + cell.lang }, source),
+    );
+  }
+  if (result === null) return createElement('pre', { className: 'cell-loading' }, '…');
+  switch (result.kind) {
+    case 'element':
+      return deserializeElement(result.type, result.props);
+    case 'value':
+      return createElement('pre', { className: 'cell-output' }, result.text);
+    case 'error':
+      return createElement('pre', { className: 'cell-error' }, result.message);
+    case 'undefined':
+      return createElement(Fragment, null);
+  }
+}
+
 const cellComponent: NodeComponent = ({ node }) => {
-  const cell = node as Cell;
-  const source = literalString(cell.value);
-  // Source-only until Stage 3: executable cells render as a plain code fence.
-  return createElement(
-    'pre',
-    { className: 'cell' },
-    createElement('code', { className: `language-${cell.lang}` }, source),
-  );
+  return createElement(CellView, { cell: node as Cell });
 };
 
 // ---------------------------------------------------------------------------
@@ -259,3 +318,5 @@ export const defaultRegistry: ComponentRegistry = {
 export function DocumentView(props: { document: Document }): ReactElement {
   return createDocumentRenderer(defaultRegistry)(props.document);
 }
+
+export type { CellResult } from '@tributary/notebook';

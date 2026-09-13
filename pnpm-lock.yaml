@@ -25,6 +25,9 @@ importers:
       '@tributary/markdown':
         specifier: workspace:*
         version: link:../../packages/core/markdown
+      '@tributary/notebook':
+        specifier: workspace:*
+        version: link:../../packages/runtime/notebook
       '@tributary/render':
         specifier: workspace:*
         version: link:../../packages/core/render
@@ -243,6 +246,9 @@ importers:
       '@tributary/api':
         specifier: workspace:*
         version: link:../../core/api
+      '@tributary/notebook':
+        specifier: workspace:*
+        version: link:../../runtime/notebook
       '@tributary/render':
         specifier: workspace:*
         version: link:../../core/render

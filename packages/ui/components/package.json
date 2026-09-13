@@ -24,7 +24,8 @@
     "@tributary/api": "workspace:*",
     "@tributary/render": "workspace:*",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "@tributary/notebook": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.6.3",
