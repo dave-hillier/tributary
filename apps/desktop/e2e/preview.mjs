@@ -34,7 +34,8 @@ await service.addRemote(bare);
 const METHODS = new Set([
   'getDocument', 'listDocuments', 'saveDocument', 'history', 'resolveLink',
   'backlinks', 'diff', 'search', 'listWorkItems', 'updateWorkItem',
-  'createWorkItem', 'renameDocument', 'addRemote', 'sync', 'evaluateDocument',
+  'createWorkItem', 'createProblem', 'diagnostics', 'renameDocument', 'addRemote',
+  'sync', 'evaluateDocument',
   'updateCell',
 ]);
 
