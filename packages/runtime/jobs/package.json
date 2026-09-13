@@ -21,7 +21,10 @@
     "lint": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@tributary/api": "workspace:*"
+    "@tributary/api": "workspace:*",
+    "@tributary/markdown": "workspace:*",
+    "@tributary/index": "workspace:*",
+    "@tributary/workspace": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.6.3",

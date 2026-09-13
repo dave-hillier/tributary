@@ -5,6 +5,7 @@ import { DocumentView, CellContext, TransclusionContext, EditContext } from '@tr
 import type { CellResolver, CellRenderResult, TransclusionResolver, EditResolver } from '@tributary/components';
 import { ReactiveHost } from '@tributary/notebook/runtime';
 import type { CompiledReactiveCell } from '@tributary/notebook/runtime';
+import type { RunJobOutcome } from '@tributary/jobs';
 import { findSection, nodeSource, replaceNodeSource } from '@tributary/markdown';
 import CodeMirror from '@uiw/react-codemirror';
 import { markdown } from '@codemirror/lang-markdown';
@@ -42,6 +43,9 @@ interface TributaryApi {
   sync: () => Promise<string>;
   compileDocument: (cells: { lang: string; source: string }[]) => Promise<CompiledReactiveCell[]>;
   updateCell: (docId: string, cellIndex: number, source: string, lang: string) => Promise<CompiledReactiveCell>;
+  runWeeklyReport: () => Promise<RunJobOutcome>;
+  listJobBranches: () => Promise<string[]>;
+  mergeJobBranch: (branch: string) => Promise<void>;
 }
 
 declare global {
@@ -248,6 +252,9 @@ function App() {
   const dataRef = useRef<{ workItems: WorkItem[]; docs: Document[] }>({ workItems: [], docs: [] });
   const [backlinks, setBacklinks] = useState<Document[]>([]);
   const [diff, setDiff] = useState('');
+  const [reportDiff, setReportDiff] = useState('');
+  const [reportStatus, setReportStatus] = useState('');
+  const [jobBranches, setJobBranches] = useState<string[]>([]);
   const [filters, setFilters] = useState<{
     status?: string;
     assignee?: string;
@@ -339,6 +346,7 @@ function App() {
       const home = list.find((d) => d.id === 'index') ?? list[0];
       if (home) await load(home.id);
       await loadWorkItems();
+      setJobBranches(await window.tributary.listJobBranches().catch(() => []));
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -462,6 +470,36 @@ function App() {
     await load(current.id);
     await loadWorkItems();
     setDocs(await window.tributary.listDocuments());
+  };
+
+  const refreshJobBranches = async (): Promise<void> => {
+    setJobBranches(await window.tributary.listJobBranches().catch(() => []));
+  };
+
+  const generateReport = async (): Promise<void> => {
+    try {
+      const outcome = await window.tributary.runWeeklyReport();
+      setReportDiff(outcome.diff || '(no changes)');
+      setReportStatus(
+        'Generated ' + outcome.reportPath + ' on ' + outcome.branch + ' (rev ' + outcome.sourceRevision.slice(0, 7) + ')'
+      );
+      await refreshJobBranches();
+    } catch (e) {
+      setReportStatus('Report failed: ' + String(e));
+    }
+  };
+
+  const mergeReport = async (branch: string): Promise<void> => {
+    try {
+      await window.tributary.mergeJobBranch(branch);
+      setReportStatus('Merged ' + branch);
+      setReportDiff('');
+      await refreshJobBranches();
+      await loadWorkItems();
+      setDocs(await window.tributary.listDocuments());
+    } catch (e) {
+      setReportStatus('Merge failed: ' + String(e));
+    }
   };
 
   const cellResolver: CellResolver = {
@@ -1218,6 +1256,25 @@ function App() {
                 </div>
               ) : null}
               <small>{syncStatus}</small>
+            </div>
+          </section>
+
+          <section>
+            <h4>reports</h4>
+            <div data-reports>
+              <button onClick={() => void generateReport()}>generate weekly report</button>
+              {reportStatus ? <small data-report-status>{reportStatus}</small> : null}
+              {jobBranches.length > 0 ? (
+                <div data-job-branches>
+                  {jobBranches.map((b) => (
+                    <div key={b} data-job-row>
+                      <code>{b}</code>
+                      <button onClick={() => void mergeReport(b)}>merge</button>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+              {reportDiff ? <pre data-report-diff>{reportDiff}</pre> : null}
             </div>
           </section>
 

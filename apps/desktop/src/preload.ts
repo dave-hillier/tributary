@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron';
 import type { Document, NewWorkItem, WorkItem } from '@tributary/api';
 import type { Diagnostic } from '@tributary/ontology';
 import type { CompiledReactiveCell } from '@tributary/notebook';
+import type { RunJobOutcome } from '@tributary/jobs';
 
 interface HistoryEntry {
   hash: string;
@@ -34,6 +35,9 @@ const api = {
   sync: (): Promise<string> => ipcRenderer.invoke('workspace:sync'),
   compileDocument: (cells: { lang: string; source: string }[]): Promise<CompiledReactiveCell[]> => ipcRenderer.invoke('workspace:compileDocument', cells),
   updateCell: (docId: string, cellIndex: number, source: string, lang: string): Promise<CompiledReactiveCell> => ipcRenderer.invoke('workspace:updateCell', docId, cellIndex, source, lang),
+  runWeeklyReport: (): Promise<RunJobOutcome> => ipcRenderer.invoke('workspace:runWeeklyReport'),
+  listJobBranches: (): Promise<string[]> => ipcRenderer.invoke('workspace:listJobBranches'),
+  mergeJobBranch: (branch: string): Promise<void> => ipcRenderer.invoke('workspace:mergeJobBranch', branch),
 };
 
 contextBridge.exposeInMainWorld('tributary', api);

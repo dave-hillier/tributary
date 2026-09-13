@@ -92,6 +92,9 @@ app.whenReady().then(async () => {
   ipcMain.handle('workspace:sync', () => service.sync());
   ipcMain.handle('workspace:compileDocument', (_evt, cells: { lang: string; source: string }[]) => service.compileDocument(cells));
   ipcMain.handle('workspace:updateCell', (_evt, docId: string, cellIndex: number, source: string, lang: string) => service.updateCell(docId, cellIndex, source, lang));
+  ipcMain.handle('workspace:runWeeklyReport', () => service.runWeeklyReport());
+  ipcMain.handle('workspace:listJobBranches', () => service.listJobBranches());
+  ipcMain.handle('workspace:mergeJobBranch', (_evt, branch: string) => service.mergeJobBranch(branch));
 
   const win = createWindow();
 

@@ -2,7 +2,7 @@
 
 - **Scope:** originally Stages 0–1 (up to `5215935`); now tracked through the
   Stage 2/3 work and hardening committed up to `26e0f9c` (09-13).
-- **Status:** Stages 0/1/2/3 committed and green. Implemented: findings
+- **Status:** Stages 0/1/2/3/4 committed and green. Implemented: findings
   1, 2, 3, 5, 6, 7, 8, 10, 11, 12, 14 and the HTML-sanitisation work. Remaining
   open: the native Electron *window* launch (finding 4 — ABI now verified under
   Electron's bundled Node 20; the window probe needs a desktop session,

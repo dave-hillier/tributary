@@ -5,6 +5,7 @@ import { join, dirname } from 'node:path';
 import { Workspace, deriveId } from '../src/index.js';
 import { createDemoWorkspace } from '../src/index.js';
 import { git } from '../src/git.js';
+import { parseMarkdown } from '@tributary/markdown';
 
 function tempDir(): string {
   return mkdtempSync(join(tmpdir(), 'tributary-ws-'));
@@ -253,6 +254,48 @@ describe('Workspace (real temp Git repo)', () => {
       await expect(Workspace.open(root)).rejects.toThrow(/Not a Git repository/);
     } finally {
       rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('creates a revision-pinned worktree, commits on a branch and merges it (Stage 4)', async () => {
+    const root = tempDir();
+    const wtDir = mkdtempSync(join(tmpdir(), 'tributary-wt-'));
+    try {
+      const ws = await createDemoWorkspace(root);
+      const rev = ws.revision();
+
+      // Isolated worktree at the pinned revision, on a new branch.
+      const wt = await ws.createWorktree(rev, join(wtDir, 'report'), 'jobs/weekly');
+      expect(wt.documents.length).toBe(ws.documents.length);
+
+      // Editing the MAIN checkout does not move the worktree's snapshot.
+      const hello = ws.getDocument('notes/hello')!;
+      hello.source = hello.source!.replace('# Hello', '# Hello (main edit)');
+      await ws.save(hello, 'main edit');
+      expect(wt.getDocument('notes/hello')!.source).toContain('# Hello');
+      expect(wt.getDocument('notes/hello')!.source).not.toContain('main edit');
+
+      // Commit a generated report on the branch, inside the worktree.
+      const report = parseMarkdown('---\ntitle: Weekly\ntype: report\n---\n\n# Weekly\n', { path: 'reports/weekly.md' });
+      await wt.save(report, 'generate weekly report');
+      const tip = wt.revision();
+      expect(tip).not.toBe(rev);
+
+      // The branch is visible in the main checkout and reviewable as a diff.
+      const diff = ws.diffBetween(rev, tip);
+      expect(diff).toContain('reports/weekly.md');
+
+      // Clean up the isolated worktree (the job's job), leaving the branch for
+      // review, then accept: merge and delete the branch.
+      ws.removeWorktree(join(wtDir, 'report'));
+      await ws.merge('jobs/weekly');
+      ws.deleteBranch('jobs/weekly');
+
+      const reopened = await Workspace.open(root);
+      expect(reopened.getDocument('reports/weekly')?.frontmatter.title).toBe('Weekly');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(wtDir, { recursive: true, force: true });
     }
   });
 });

@@ -22,6 +22,9 @@ importers:
       '@tributary/index':
         specifier: workspace:*
         version: link:../../packages/core/index
+      '@tributary/jobs':
+        specifier: workspace:*
+        version: link:../../packages/runtime/jobs
       '@tributary/markdown':
         specifier: workspace:*
         version: link:../../packages/core/markdown
@@ -236,6 +239,15 @@ importers:
       '@tributary/api':
         specifier: workspace:*
         version: link:../../core/api
+      '@tributary/index':
+        specifier: workspace:*
+        version: link:../../core/index
+      '@tributary/markdown':
+        specifier: workspace:*
+        version: link:../../core/markdown
+      '@tributary/workspace':
+        specifier: workspace:*
+        version: link:../../core/workspace
     devDependencies:
       '@types/node':
         specifier: ^22.10.2

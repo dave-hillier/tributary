@@ -27,6 +27,7 @@
     "@tributary/api": "workspace:*",
     "@tributary/components": "workspace:*",
     "@tributary/index": "workspace:*",
+    "@tributary/jobs": "workspace:*",
     "@tributary/markdown": "workspace:*",
     "@tributary/notebook": "workspace:*",
     "@tributary/ontology": "workspace:*",

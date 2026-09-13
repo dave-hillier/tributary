@@ -202,6 +202,52 @@ export class Workspace {
     return git(this.ref.rootPath, ['log', '-p', '-1', '--format=', '--', doc.path]);
   }
 
+  /** The current HEAD commit SHA (used for provenance + job pinning). */
+  revision(): string {
+    return git(this.ref.rootPath, ['rev-parse', 'HEAD']);
+  }
+
+  /**
+   * Create an isolated worktree at `revision`, optionally on a new branch,
+   * and open it as a Workspace (arch §5.5). The worktree shares this repo's
+   * object store, so commits made there are visible here by SHA/branch.
+   */
+  async createWorktree(revision: string, worktreeDir: string, branch?: string): Promise<Workspace> {
+    const args = ['worktree', 'add'];
+    if (branch) args.push('-b', branch);
+    args.push(worktreeDir, revision);
+    git(this.ref.rootPath, args);
+    return Workspace.open(worktreeDir);
+  }
+
+  /** Remove an isolated worktree created by `createWorktree`. */
+  removeWorktree(worktreeDir: string): void {
+    git(this.ref.rootPath, ['worktree', 'remove', '--force', worktreeDir]);
+  }
+
+  /** Merge a branch into the current checkout (job review/accept). */
+  async merge(branch: string): Promise<void> {
+    git(this.ref.rootPath, ['merge', '-q', '--no-edit', branch]);
+  }
+
+  /** Delete a local branch after it has been merged (or abandoned). */
+  deleteBranch(branch: string): void {
+    git(this.ref.rootPath, ['branch', '-D', branch]);
+  }
+
+  /** The tree diff between two revisions (the reviewable change set). */
+  diffBetween(base: string, tip: string): string {
+    return git(this.ref.rootPath, ['diff', base, tip]);
+  }
+
+  /** Local branch short-names under a refs/heads/ prefix (default jobs/). */
+  listBranches(prefix = 'jobs/'): string[] {
+    return git(this.ref.rootPath, ['for-each-ref', '--format=%(refname:short)', 'refs/heads/' + prefix])
+      .split('\n')
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
+
   /** Add a remote, fetch it, and push the current branch (arch §5.4/§5.5). */
   async addRemote(name: string, url: string): Promise<void> {
     git(this.ref.rootPath, ['remote', 'add', name, url]);

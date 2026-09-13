@@ -2,6 +2,9 @@
 
 **Source:** architecture §10 "Slice 4".
 **Outcome:** Make the reporting workflow a first-class product capability.
+**Status:** ✅ complete — `@tributary/jobs` runs revision-pinned jobs in an
+isolated `git worktree`, generates provenance-tagged reports, commits them to a
+`jobs/` branch, and the shell surfaces a diff + merge. Suite green.
 
 ## Goal
 
@@ -28,11 +31,11 @@ creates a branch/commit, and surfaces a reviewable diff before merge.
 
 ## Exit criteria
 
-- [ ] A manual/scheduled job generates a weekly report over repository
+- [x] A manual/scheduled job generates a weekly report over repository
       documents in a real temp repo.
-- [ ] A reader can tell exactly which repository revision the report describes.
-- [ ] Old reports stay stable even when source docs later change (snapshot vs
+- [x] A reader can tell exactly which repository revision the report describes.
+- [x] Old reports stay stable even when source docs later change (snapshot vs
       live distinction, §6.2).
-- [ ] Job runs revision-pinned, isolated and reviewable before merge.
+- [x] Job runs revision-pinned, isolated and reviewable before merge.
 
 **The reporting workflow — revision-pinned, durable, offline-capable.**

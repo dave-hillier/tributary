@@ -99,12 +99,14 @@ are written as their decisions are settled.
 
 Verified against the green suite as of `26e0f9c` (09-13):
 
-- **Stages 0, 1, 2 and 3 are complete** — cells compile (in the main process),
+- **Stages 0, 1, 2, 3 and 4 are complete** — cells compile (in the main process),
   run, invalidate and persist, `import` bare/relative/default/namespace
   modules, and evaluate in the renderer with full React so an imported component
   (e.g. Replot) renders end-to-end (finding 11).
-- **Stage 4 (offline jobs + generated reports) is deferred by decision** —
-  `@tributary/jobs` remains an empty stub; revisit before starting it.
+- **Stage 4 (offline jobs + generated reports) is complete** — `@tributary/jobs`
+  runs revision-pinned jobs in an isolated `git worktree`, writes
+  provenance-tagged report Markdown to a `jobs/` branch, and the shell surfaces
+  a reviewable diff + merge.
 - The work-item **ontology is settled and implemented** (ADR-005, finding 15):
   typed `entity:id` refs, `assignees` as a list, `project` as a resolved document
   reference, numeric priority, first-class labels/tags/aliases/due, typed

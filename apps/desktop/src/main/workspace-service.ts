@@ -7,6 +7,7 @@ import { Workspace, createDemoWorkspace, type CommitInfo } from '@tributary/work
 import { SqliteIndex } from '@tributary/index';
 import { parseMarkdown, updateFrontmatter, replaceCellSource } from '@tributary/markdown';
 import { compileReactiveCell, type CompiledReactiveCell, type CellLanguage, type ResolveOptions } from '@tributary/notebook';
+import { runJob, weeklyReport, type RunJobOutcome } from '@tributary/jobs';
 import type { Document, DocumentId, NewWorkItem, WorkItem } from '@tributary/api';
 import { formatRef, parseRef, type Diagnostic } from '@tributary/ontology';
 
@@ -16,6 +17,16 @@ import { formatRef, parseRef, type Diagnostic } from '@tributary/ontology';
  */
 /** The desktop app's own node_modules (host fallback for cell imports). */
 const APP_NODE_MODULES = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'node_modules');
+
+/** ISO-8601 week for a date, e.g. '2026-W37'. */
+function isoWeek(date: Date): string {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const dayNum = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  const week = Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
+  return d.getUTCFullYear() + '-W' + String(week).padStart(2, '0');
+}
 
 export class WorkspaceService {
   private workspace: Workspace | null = null;
@@ -217,5 +228,38 @@ export class WorkspaceService {
     await workspace.save(doc, 'create problem ' + title.trim());
     index.rebuild(workspace.documents);
     return workspace.getDocument(id) ?? doc;
+  }
+
+  /** Run a revision-pinned weekly report job and return its reviewable outcome. */
+  async runWeeklyReport(): Promise<RunJobOutcome> {
+    const workspace = this.workspace;
+    if (!workspace) throw new Error('Workspace not open');
+    return runJob({
+      rootPath: workspace.ref.rootPath,
+      config: {
+        generatedBy: 'jobs/engineering-weekly',
+        title: 'Weekly Engineering Report',
+        series: 'engineering-weekly',
+        period: isoWeek(new Date()),
+      },
+      generate: weeklyReport,
+    });
+  }
+
+  /** Local job branches awaiting review. */
+  listJobBranches(): string[] {
+    return this.workspace?.listBranches('jobs/') ?? [];
+  }
+
+  /** Accept a job branch: merge it, delete it, and refresh derived state. */
+  async mergeJobBranch(branch: string): Promise<void> {
+    const workspace = this.workspace;
+    const index = this.index;
+    if (!workspace || !index) throw new Error('Workspace not open');
+    await workspace.merge(branch);
+    workspace.deleteBranch(branch);
+    const reopened = await Workspace.open(workspace.ref.rootPath);
+    this.workspace = reopened;
+    index.rebuild(reopened.documents);
   }
 }
