@@ -169,6 +169,8 @@ export interface DocumentFrontmatter {
   priority?: number | string;
   /** Reference to a project document, resolved through the index. */
   project?: string;
+  /** Reference to a problem document, resolved through the index (mirrors `project`). */
+  problem?: string;
   /** Work-item labels (arch §3.3). */
   labels?: string[];
   /** ISO date. */
@@ -216,11 +218,17 @@ export interface WorkItem {
   project?: string;
   /** The project reference resolved to a document id — survives renames. */
   projectId?: DocumentId;
+  /** The problem reference as written, for display and round-tripping. */
+  problem?: string;
+  /** The problem reference resolved to a document id — survives renames. */
+  problemId?: DocumentId;
+  /** Raw schema-tolerant frontmatter, for arbitrary-field filtering and display. */
+  frontmatter: DocumentFrontmatter;
   due?: string;
 }
 
 /** A typed edge in the derived index (ADR-005). */
-export type RelationKind = 'link' | 'transclusion' | 'project' | 'parent' | 'blocks';
+export type RelationKind = 'link' | 'transclusion' | 'project' | 'problem' | 'parent' | 'blocks';
 
 /**
  * Input for creating a work item, in canonical ontology terms (ADR-005). The
@@ -235,6 +243,8 @@ export interface NewWorkItem {
   priority?: number;
   /** Project reference — an id, path, alias or title. */
   project?: string;
+  /** Problem reference — an id, path, alias or title. */
+  problem?: string;
   labels?: string[];
   due?: string;
 }

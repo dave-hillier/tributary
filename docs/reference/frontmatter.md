@@ -17,7 +17,7 @@ in the app, never as a refusal to open, render or save.
 |---|---|---|
 | `id` | string | Stable identity, assigned on first create/import. Never derived from path or title; a rename does not change it. |
 | `title` | string | Display name. Falls back to the `id` when absent. |
-| `type` | `index` \| `wiki` \| `work-item` \| `project` \| `report` \| `note` | What the document is. Drives projection and rendering. |
+| `type` | `index` \| `wiki` \| `work-item` \| `project` \| `problem` \| `report` \| `note` | What the document is. Drives projection and rendering. |
 | `aliases` | string list | Alternative names. Used for wiki-link resolution and rename resilience. |
 | `tags` | string list | Document-wide navigation and search vocabulary. |
 | `template` | string | Selects a presentation or report template. *(Declared; no consumer yet.)* |
@@ -34,6 +34,7 @@ ordinary Git history.
 | `assignees` | list of refs | Who is on it, e.g. `[user:dave, user:sam]`. |
 | `priority` | `0`–`4` | `0` most urgent, `4` least. Sorts by urgency. |
 | `project` | ref | The project document this belongs to. Resolved through the index. |
+| `problem` | ref | The problem document this item is about. Resolved through the index; survives renames. |
 | `labels` | string list | Work-item labels. |
 | `due` | ISO date | e.g. `2026-09-30`. |
 | `parent` | ref | The parent work item. |
@@ -86,7 +87,7 @@ The workspace reports, and the board surfaces:
 - a legacy string priority that was read successfully (advisory)
 - an unknown `type` or `status` (warning)
 - an unreadable `priority` (warning)
-- an unresolvable `project`, `parent` or `blocks` reference (warning)
+- an unresolvable `project`, `problem`, `parent` or `blocks` reference (warning)
 
 An unknown *key* is never reported — additional metadata is expected to be
 additive (architecture §4.2).
@@ -102,6 +103,7 @@ status: doing
 assignees: [user:alice, user:carol]
 priority: 1
 project: project-demo
+problem: problem-runtime-flakiness
 labels: [demo, release]
 due: 2026-09-30
 ---

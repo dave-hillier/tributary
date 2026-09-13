@@ -198,11 +198,31 @@ export class WorkspaceService {
     if (assignees.length > 0) fm.assignees = assignees.map((a) => formatRef(parseRef(a, 'user')));
     if (input.priority !== undefined) fm.priority = input.priority;
     if (input.project) fm.project = input.project;
+    if (input.problem) fm.problem = input.problem;
     if (input.labels && input.labels.length > 0) fm.labels = input.labels;
     if (input.due) fm.due = input.due;
     const source = updateFrontmatter('# ' + input.title + '\n', fm);
     const doc = parseMarkdown(source, { path });
     await workspace.save(doc, 'create work item ' + input.title);
+    index.rebuild(workspace.documents);
+    return workspace.getDocument(id) ?? doc;
+  }
+
+  /**
+   * Create a problem document (`type: problem`) that work items reference by
+   * id, path, alias or title (ADR-005). Problems are ordinary Markdown, so they
+   * participate in Git history and index exactly like any other document.
+   */
+  async createProblem(title: string): Promise<Document> {
+    const workspace = this.workspace;
+    const index = this.index;
+    if (!workspace || !index) throw new Error('Workspace not open');
+    const id = randomUUID();
+    const path = 'problems/' + id + '.md';
+    const fm: Record<string, unknown> = { id, type: 'problem', title: title.trim() };
+    const source = updateFrontmatter('# ' + title.trim() + '\n', fm);
+    const doc = parseMarkdown(source, { path });
+    await workspace.save(doc, 'create problem ' + title.trim());
     index.rebuild(workspace.documents);
     return workspace.getDocument(id) ?? doc;
   }

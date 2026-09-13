@@ -72,6 +72,8 @@ export class SqliteIndex {
         priority INTEGER,
         project TEXT,
         project_id TEXT,
+        problem TEXT,
+        problem_id TEXT,
         due TEXT
       );
       -- Multi-valued work-item fields, normalised out of the item row.
@@ -97,7 +99,7 @@ export class SqliteIndex {
     const resolveId = (t: string): DocumentId | undefined => resolveDocument(documents, t)?.id;
 
     const insertWorkItem = this.db.prepare(
-      'INSERT OR REPLACE INTO work_items (id, status, priority, project, project_id, due) VALUES (?,?,?,?,?,?)'
+      'INSERT OR REPLACE INTO work_items (id, status, priority, project, project_id, problem, problem_id, due) VALUES (?,?,?,?,?,?,?,?)'
     );
     const insertAssignee = this.db.prepare(
       'INSERT OR IGNORE INTO work_item_assignees (id, entity, entity_id) VALUES (?,?,?)'
@@ -124,6 +126,8 @@ export class SqliteIndex {
             item.priority ?? null,
             item.project ?? null,
             item.projectId ?? null,
+            item.problem ?? null,
+            item.problemId ?? null,
             item.due ?? null
           );
           for (const a of item.assignees) insertAssignee.run(item.id, a.entity, a.id);
@@ -169,6 +173,15 @@ export class SqliteIndex {
     return (this.db.prepare(sql).all(...args) as { from_id: string }[]).map((r) => r.from_id);
   }
 
+  /** The work items belonging to a problem document, by resolved id. */
+  itemsInProblem(problemId: DocumentId): WorkItem[] {
+    const rows = this.db
+      .prepare('SELECT id FROM work_items WHERE problem_id = ? ORDER BY id')
+      .all(problemId) as { id: string }[];
+    const ids = new Set(rows.map((r) => r.id));
+    return this.workItems().filter((w) => ids.has(w.id));
+  }
+
   /** The work items belonging to a project document, by resolved id. */
   itemsInProject(projectId: DocumentId): WorkItem[] {
     const rows = this.db
@@ -181,13 +194,15 @@ export class SqliteIndex {
   /** Typed work-item projection, served from the SQLite tables (ADR-005). */
   workItems(): WorkItem[] {
     const rows = this.db
-      .prepare('SELECT id, status, priority, project, project_id, due FROM work_items ORDER BY id')
+      .prepare('SELECT id, status, priority, project, project_id, problem, problem_id, due FROM work_items ORDER BY id')
       .all() as Array<{
       id: string;
       status: string;
       priority: number | null;
       project: string | null;
       project_id: string | null;
+      problem: string | null;
+      problem_id: string | null;
       due: string | null;
     }>;
     const assigneeRows = this.db
@@ -223,6 +238,9 @@ export class SqliteIndex {
         priority: r.priority ?? undefined,
         project: r.project ?? undefined,
         projectId: r.project_id ?? undefined,
+        problem: r.problem ?? undefined,
+        problemId: r.problem_id ?? undefined,
+        frontmatter: doc?.frontmatter ?? {},
         due: r.due ?? undefined,
       };
     });

@@ -27,7 +27,7 @@ import type {
 export const STATUSES = ['todo', 'doing', 'blocked', 'done'] as const;
 
 /** Known document types (arch §3.2's continuum). */
-export const TYPES = ['index', 'wiki', 'work-item', 'project', 'report', 'note'] as const;
+export const TYPES = ['index', 'wiki', 'work-item', 'project', 'problem', 'report', 'note'] as const;
 
 /** Priority scale: 0 most urgent … 4 least (arch §3.3 `priority: 2`). */
 export const PRIORITY_MIN = 0;
@@ -187,6 +187,8 @@ export function projectWorkItem(doc: Document, documents: Document[] = []): Work
   const fm = doc.frontmatter;
   const project = typeof fm.project === 'string' && fm.project.trim() !== '' ? fm.project.trim() : undefined;
   const resolved = project ? resolveDocument(documents, project) : undefined;
+  const problem = typeof fm.problem === 'string' && fm.problem.trim() !== '' ? fm.problem.trim() : undefined;
+  const resolvedProblem = problem ? resolveDocument(documents, problem) : undefined;
   return {
     id: doc.id,
     path: doc.path,
@@ -197,6 +199,9 @@ export function projectWorkItem(doc: Document, documents: Document[] = []): Work
     priority: priority(fm),
     project,
     projectId: resolved?.id,
+    problem,
+    problemId: resolvedProblem?.id,
+    frontmatter: fm,
     due: typeof fm.due === 'string' && fm.due !== '' ? fm.due : undefined,
   };
 }
@@ -226,7 +231,7 @@ export interface Relation {
   from: DocumentId;
   /** The reference as written, before resolution. */
   target: string;
-  kind: 'project' | 'parent' | 'blocks';
+  kind: 'project' | 'problem' | 'parent' | 'blocks';
 }
 
 /**
@@ -239,6 +244,9 @@ export function frontmatterRelations(doc: Document): Relation[] {
   const out: Relation[] = [];
   if (typeof fm.project === 'string' && fm.project.trim() !== '') {
     out.push({ from: doc.id, target: fm.project.trim(), kind: 'project' });
+  }
+  if (typeof fm.problem === 'string' && fm.problem.trim() !== '') {
+    out.push({ from: doc.id, target: fm.problem.trim(), kind: 'problem' });
   }
   if (typeof fm.parent === 'string' && fm.parent.trim() !== '') {
     out.push({ from: doc.id, target: fm.parent.trim(), kind: 'parent' });

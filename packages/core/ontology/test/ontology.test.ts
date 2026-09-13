@@ -289,3 +289,41 @@ describe('validation reports rather than rejects', () => {
     expect(d).toEqual([]);
   });
 });
+
+describe('problem references', () => {
+  const problem = doc('01K-PROB', { title: 'Runtime flakiness', type: 'problem', aliases: ['flaky'] }, 'problems/flaky.md');
+
+  it('projects a problem reference and resolves its id (rename-safe)', () => {
+    const item = projectWorkItem(
+      doc('i', { type: 'work-item', title: 'Investigate', problem: 'flaky' }),
+      [problem],
+    );
+    expect(item.problem).toBe('flaky');
+    expect(item.problemId).toBe('01K-PROB');
+  });
+
+  it('keeps the written problem reference when unresolved', () => {
+    const item = projectWorkItem(doc('i', { type: 'work-item', title: 'X', problem: 'ghost' }), []);
+    expect(item.problem).toBe('ghost');
+    expect(item.problemId).toBeUndefined();
+  });
+
+  it('emits a typed `problem` relation', () => {
+    const rels = frontmatterRelations(doc('i', { type: 'work-item', problem: 'flaky' }));
+    expect(rels).toEqual([{ from: 'i', target: 'flaky', kind: 'problem' }]);
+  });
+
+  it('warns on an unresolvable problem reference', () => {
+    const corpus = [doc('i', { type: 'work-item', problem: 'ghost' })];
+    expect(validateDocuments(corpus).some((x) => x.key === 'problem' && x.severity === 'warning')).toBe(true);
+  });
+
+  it('is silent on a resolvable problem reference', () => {
+    const item = doc('i', { type: 'work-item', title: 'X', problem: '01K-PROB' });
+    expect(validateDocuments([problem, item])).toEqual([]);
+  });
+
+  it('`problem` is a known document type (no unknown-type warning)', () => {
+    expect(validateDocument(doc('p', { type: 'problem', title: 'P' }))).toEqual([]);
+  });
+});

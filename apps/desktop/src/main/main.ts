@@ -85,6 +85,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('workspace:listWorkItems', () => service.listWorkItems());
   ipcMain.handle('workspace:updateWorkItem', (_evt, id: string, patch: Record<string, unknown>) => service.updateWorkItem(id, patch));
   ipcMain.handle('workspace:createWorkItem', (_evt, input: NewWorkItem) => service.createWorkItem(input));
+  ipcMain.handle('workspace:createProblem', (_evt, title: string) => service.createProblem(title));
   ipcMain.handle('workspace:diagnostics', () => service.diagnostics());
   ipcMain.handle('workspace:renameDocument', (_evt, id: string, newPath: string) => service.renameDocument(id, newPath));
   ipcMain.handle('workspace:addRemote', (_evt, url: string, name?: string) => service.addRemote(url, name));

@@ -1,5 +1,5 @@
 import { StrictMode, Fragment, useEffect, useRef, useState } from 'react';
-import type { KeyboardEvent, MouseEvent } from 'react';
+import type { KeyboardEvent, MouseEvent, ReactElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { DocumentView, CellContext, TransclusionContext, EditContext } from '@tributary/components';
 import type { CellResolver, CellResult, TransclusionResolver, EditResolver } from '@tributary/components';
@@ -33,6 +33,7 @@ interface TributaryApi {
   listWorkItems: () => Promise<WorkItem[]>;
   updateWorkItem: (id: string, patch: Record<string, unknown>) => Promise<Document>;
   createWorkItem: (input: NewWorkItem) => Promise<Document>;
+  createProblem: (title: string) => Promise<Document>;
   diagnostics: () => Promise<Diagnostic[]>;
   renameDocument: (id: string, newPath: string) => Promise<Document>;
   addRemote: (url: string, name?: string) => Promise<void>;
@@ -124,7 +125,7 @@ function relativeTime(date: string): string {
   return new Date(date).toLocaleDateString();
 }
 
-type View = 'document' | 'board';
+type View = 'document' | 'board' | 'list' | 'table';
 type Pane = 'rendered' | 'source' | 'diff';
 
 // Board columns come from the ontology's vocabulary (ADR-005), not a local
@@ -139,6 +140,78 @@ function priorityLabel(p: number | undefined): string {
   return p === undefined ? '' : (PRIORITY_LABELS[p] ?? String(p));
 }
 
+/** Stringify an arbitrary frontmatter value for display in a table cell. */
+function fmtField(v: unknown): string {
+  if (v == null) return '';
+  if (Array.isArray(v)) return v.map((x) => String(x)).join(', ');
+  if (typeof v === 'object') return JSON.stringify(v);
+  return String(v);
+}
+
+/** Case-insensitive, type-aware match for generic frontmatter field filtering. */
+function fieldMatches(w: WorkItem, field: string, value: string): boolean {
+  const want = value.trim().toLowerCase();
+  if (want === '') return true;
+  const raw = (w.frontmatter as Record<string, unknown>)[field];
+  if (raw == null) return false;
+  if (Array.isArray(raw)) return raw.some((x) => String(x).trim().toLowerCase() === want);
+  return String(raw).trim().toLowerCase() === want;
+}
+
+/** Fields already surfaced as first-class board filters/columns. */
+const FIELD_FILTER_EXCLUDE = new Set([
+  'id', 'type', 'kind', 'title', 'status', 'assignees', 'assignee',
+  'priority', 'labels', 'project', 'problem', 'due',
+]);
+
+/** A single work-item card, shared by the board, list and swimlane views. */
+function WorkCard(props: {
+  w: WorkItem;
+  statuses: string[];
+  resolveTitle: (key: string) => string;
+  onOpen: (id: string) => void;
+  onStatusChange: (id: string, status: string) => void;
+}): ReactElement {
+  const { w, statuses, resolveTitle, onOpen, onStatusChange } = props;
+  const projectLabel = w.projectId ? resolveTitle(w.projectId) : (w.project ?? '—');
+  const problemLabel = w.problemId ? resolveTitle(w.problemId) : (w.problem ?? '');
+  return (
+    <article data-card onClick={() => onOpen(w.id)}>
+      <div data-card-head>
+        <b>{w.title}</b>
+        <span data-priority={w.priority ?? undefined}>{priorityLabel(w.priority)}</span>
+      </div>
+      <div data-card-path>
+        {w.path} · {projectLabel}
+        {problemLabel ? ' · ↳ ' + problemLabel : ''}
+        {w.due ? ' · due ' + w.due : ''}
+      </div>
+      {w.labels.length > 0 ? (
+        <ul data-labels>
+          {w.labels.map((l) => (
+            <li key={l}>{l}</li>
+          ))}
+        </ul>
+      ) : null}
+      <div data-card-foot>
+        <span>{w.assignees.length === 0 ? '—' : w.assignees.map((a) => a.id).join(', ')}</span>
+        <select
+          aria-label={'status of ' + w.title}
+          value={w.status}
+          onClick={(e) => e.stopPropagation()}
+          onChange={(e) => onStatusChange(w.id, e.target.value)}
+        >
+          {statuses.map((s) => (
+            <option key={s} value={s}>
+              {s}
+            </option>
+          ))}
+        </select>
+      </div>
+    </article>
+  );
+}
+
 function App() {
   const [docs, setDocs] = useState<Document[]>([]);
   const [current, setCurrent] = useState<Document | null>(null);
@@ -149,6 +222,7 @@ function App() {
   const [results, setResults] = useState<Document[]>([]);
   const [workItems, setWorkItems] = useState<WorkItem[]>([]);
   const [newTitle, setNewTitle] = useState('');
+  const [newProblem, setNewProblem] = useState('');
   const [renamePath, setRenamePath] = useState('');
   const [renameOpen, setRenameOpen] = useState(false);
   const [syncStatus, setSyncStatus] = useState('');
@@ -162,11 +236,21 @@ function App() {
     priority?: number;
     label?: string;
     project?: string;
+    problem?: string;
   }>({});
+  // Generic filters over arbitrary frontmatter fields (one value per field).
+  const [fieldFilters, setFieldFilters] = useState<Record<string, string>>({});
+  const [tableSort, setTableSort] = useState<{ key: string; dir: 1 | -1 }>({ key: 'title', dir: 1 });
   const [diagnostics, setDiagnostics] = useState<Diagnostic[]>([]);
   const [view, setView] = useState<View>('document');
   const [pane, setPane] = useState<Pane>('rendered');
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
+  // Board presentation state: reorderable column order, optional swimlane field,
+  // and transient drag/drop hover targets.
+  const [columnOrder, setColumnOrder] = useState<string[]>([]);
+  const [swimlaneField, setSwimlaneField] = useState('');
+  const [dragCol, setDragCol] = useState<string | null>(null);
+  const [overCol, setOverCol] = useState<string | null>(null);
   const autosaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSavedSource = useRef('');
 
@@ -297,6 +381,14 @@ function App() {
     setDocs(await window.tributary.listDocuments());
   };
 
+  const createProblemItem = async (): Promise<void> => {
+    if (!newProblem.trim()) return;
+    await window.tributary.createProblem(newProblem.trim());
+    setNewProblem('');
+    await loadWorkItems();
+    setDocs(await window.tributary.listDocuments());
+  };
+
   const updateCell = async (cell: Cell, source: string): Promise<void> => {
     if (!current) return;
     const idx = cellsRef.current.indexOf(cell);
@@ -358,7 +450,15 @@ function App() {
 
   // ── Derived values ─────────────────────────────────────────────────────
 
-  const statuses = [...new Set([...COLUMN_ORDER, ...workItems.map((w) => w.status)])];
+  // Column order: the user's drag-reordered list, otherwise the ontology's
+  // vocabulary. Statuses discovered in the corpus that are not already known are
+  // appended so a novel status is never hidden.
+  const statuses = (() => {
+    const base = columnOrder.length > 0 ? columnOrder : [...COLUMN_ORDER];
+    const known = new Set(base);
+    const extra = [...new Set(workItems.map((w) => w.status))].filter((s) => !known.has(s));
+    return [...base, ...extra];
+  })();
   const assignees = [...new Set(workItems.flatMap((w) => w.assignees.map(formatRef)))].sort();
   // Priorities sort numerically now, so the facet reads urgent → none rather
   // than the alphabetical order string priorities forced (ADR-005 §5).
@@ -370,7 +470,9 @@ function App() {
   // does not split the board (ADR-005 §4).
   const projectKey = (w: WorkItem): string | undefined => w.projectId ?? w.project;
   const projects = [...new Set(workItems.map(projectKey).filter((p): p is string => p != null))].sort();
-  const projectTitle = (key: string): string => docs.find((d) => d.id === key)?.frontmatter.title ?? key;
+  const problemKey = (w: WorkItem): string | undefined => w.problemId ?? w.problem;
+  const problems = [...new Set(workItems.map(problemKey).filter((p): p is string => p != null))].sort();
+  const refTitle = (key: string): string => docs.find((d) => d.id === key)?.frontmatter.title ?? key;
   const filteredItems = workItems
     .filter(
       (w) =>
@@ -378,9 +480,137 @@ function App() {
         (!filters.assignee || w.assignees.some((a) => formatRef(a) === filters.assignee)) &&
         (filters.priority === undefined || w.priority === filters.priority) &&
         (!filters.label || w.labels.includes(filters.label)) &&
-        (!filters.project || projectKey(w) === filters.project)
+        (!filters.project || projectKey(w) === filters.project) &&
+        (!filters.problem || problemKey(w) === filters.problem) &&
+        Object.entries(fieldFilters).every(([field, value]) => fieldMatches(w, field, value))
     )
     .sort(byUrgency);
+
+  // Arbitrary frontmatter fields available for generic filtering / table columns.
+  const filterableFields = [
+    ...new Set(
+      workItems.flatMap((w) => Object.keys(w.frontmatter).filter((k) => !FIELD_FILTER_EXCLUDE.has(k)))
+    ),
+  ].sort();
+  const addableFields = filterableFields.filter((f) => !(f in fieldFilters));
+
+  // Optional swimlanes: horizontal bands grouped by any frontmatter field. Known
+  // fields use their canonical projection (so a project rename survives); every
+  // other field reads the raw frontmatter value.
+  const swimlaneFields = [
+    ...new Set(['project', 'problem', 'assignees', 'priority', 'labels', 'due', ...filterableFields]),
+  ].sort();
+  const swimlaneValue = (w: WorkItem, field: string): string => {
+    switch (field) {
+      case 'project':
+        return w.projectId ? refTitle(w.projectId) : (w.project ?? '');
+      case 'problem':
+        return w.problemId ? refTitle(w.problemId) : (w.problem ?? '');
+      case 'assignees':
+      case 'assignee':
+        return w.assignees.map((a) => a.id).join(', ');
+      case 'priority':
+        return priorityLabel(w.priority);
+      case 'labels':
+        return w.labels.join(', ');
+      case 'due':
+        return w.due ?? '';
+      default:
+        return fmtField((w.frontmatter as Record<string, unknown>)[field]);
+    }
+  };
+  const swimlaneKeys = swimlaneField
+    ? [...new Set(filteredItems.map((w) => swimlaneValue(w, swimlaneField) || '(none)'))].sort((a, b) =>
+        a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })
+      )
+    : [];
+
+  const moveColumn = (from: string, to: string): void => {
+    const idxFrom = statuses.indexOf(from);
+    const idxTo = statuses.indexOf(to);
+    if (idxFrom < 0 || idxTo < 0 || idxFrom === idxTo) return;
+    const next = [...statuses];
+    next.splice(idxFrom, 1);
+    next.splice(idxTo, 0, from);
+    setColumnOrder(next);
+  };
+
+  const renderColumn = (col: string, items: WorkItem[]): ReactElement => (
+    <section
+      key={col}
+      data-col
+      data-drop-target={overCol === col && dragCol !== col ? '' : undefined}
+      onDragOver={(e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        if (overCol !== col) setOverCol(col);
+      }}
+      onDrop={(e) => {
+        e.preventDefault();
+        const from = e.dataTransfer.getData('text/plain') || dragCol;
+        if (from && from !== col) moveColumn(from, col);
+        setDragCol(null);
+        setOverCol(null);
+      }}
+    >
+      <h3
+        draggable
+        onDragStart={(e) => {
+          setDragCol(col);
+          e.dataTransfer.effectAllowed = 'move';
+          e.dataTransfer.setData('text/plain', col);
+        }}
+        onDragEnd={() => {
+          setDragCol(null);
+          setOverCol(null);
+        }}
+      >
+        <span>{col}</span>
+        <small>{items.length}</small>
+      </h3>
+      <div data-column>
+        {items.length === 0 ? (
+          <div data-empty>no items</div>
+        ) : (
+          items.map((w) => (
+            <WorkCard
+              key={w.id}
+              w={w}
+              statuses={statuses}
+              resolveTitle={refTitle}
+              onOpen={(id) => void load(id)}
+              onStatusChange={(id, s) => void changeStatus(id, s)}
+            />
+          ))
+        )}
+      </div>
+    </section>
+  );
+
+  type TableColumn = { key: string; label: string; value: (w: WorkItem) => string };
+  const tableColumns: TableColumn[] = [
+    { key: 'title', label: 'title', value: (w) => w.title },
+    { key: 'status', label: 'status', value: (w) => w.status },
+    { key: 'assignees', label: 'assignees', value: (w) => w.assignees.map((a) => a.id).join(', ') },
+    { key: 'priority', label: 'priority', value: (w) => priorityLabel(w.priority) },
+    { key: 'labels', label: 'labels', value: (w) => w.labels.join(', ') },
+    { key: 'project', label: 'project', value: (w) => (w.projectId ? refTitle(w.projectId) : (w.project ?? '')) },
+    { key: 'problem', label: 'problem', value: (w) => (w.problemId ? refTitle(w.problemId) : (w.problem ?? '')) },
+    { key: 'due', label: 'due', value: (w) => w.due ?? '' },
+    ...filterableFields.map((f) => ({
+      key: 'field:' + f,
+      label: f,
+      value: (w: WorkItem) => fmtField((w.frontmatter as Record<string, unknown>)[f]),
+    })),
+  ];
+  const sortedItems = [...filteredItems].sort((a, b) => {
+    const col = tableColumns.find((c) => c.key === tableSort.key);
+    if (!col) return 0;
+    return col.value(a).localeCompare(col.value(b), undefined, { numeric: true, sensitivity: 'base' }) * tableSort.dir;
+  });
+  const toggleSort = (key: string): void => {
+    setTableSort((s) => (s.key === key ? { key, dir: s.dir === 1 ? -1 : 1 } : { key, dir: 1 }));
+  };
 
   const groups = (() => {
     const map = new Map<string, Document[]>();
@@ -403,6 +633,153 @@ function App() {
   const diffAdded = diffLines.filter((l) => l.startsWith('+') && !l.startsWith('+++')).length;
   const diffRemoved = diffLines.filter((l) => l.startsWith('-') && !l.startsWith('---')).length;
 
+  const diagnosticsBar = diagnostics.length > 0 ? (
+    <>
+      <details data-diagnostics>
+        <summary>
+          {diagnostics.length} ontology {diagnostics.length === 1 ? 'note' : 'notes'}
+        </summary>
+        <ul>
+          {diagnostics.map((d, i) => (
+            <li key={d.documentId + d.key + String(i)} data-severity={d.severity}>
+              <a
+                href={'#' + d.documentId}
+                onClick={(e) => {
+                  e.preventDefault();
+                  void load(d.documentId);
+                }}
+              >
+                {d.path}
+              </a>{' '}
+              <code>{d.key}</code> — {d.message}
+            </li>
+          ))}
+        </ul>
+      </details>
+      <span data-sep>|</span>
+    </>
+  ) : null;
+
+  const filtersBar = (
+    <div data-filters>
+      <select
+        aria-label="status filter"
+        value={filters.status ?? ''}
+        onChange={(e) => setFilters({ ...filters, status: e.target.value || undefined })}
+      >
+        <option value="">all statuses</option>
+        {statuses.map((s) => (
+          <option key={s} value={s}>
+            {s}
+          </option>
+        ))}
+      </select>
+      <select
+        aria-label="assignee filter"
+        value={filters.assignee ?? ''}
+        onChange={(e) => setFilters({ ...filters, assignee: e.target.value || undefined })}
+      >
+        <option value="">all assignees</option>
+        {assignees.map((a) => (
+          <option key={a} value={a}>
+            {a}
+          </option>
+        ))}
+      </select>
+      <select
+        aria-label="priority filter"
+        value={filters.priority ?? ''}
+        onChange={(e) =>
+          setFilters({
+            ...filters,
+            priority: e.target.value === '' ? undefined : Number(e.target.value),
+          })
+        }
+      >
+        <option value="">all priorities</option>
+        {priorities.map((p) => (
+          <option key={p} value={p}>
+            {p} · {priorityLabel(p)}
+          </option>
+        ))}
+      </select>
+      <select
+        aria-label="label filter"
+        value={filters.label ?? ''}
+        onChange={(e) => setFilters({ ...filters, label: e.target.value || undefined })}
+      >
+        <option value="">all labels</option>
+        {labels.map((l) => (
+          <option key={l} value={l}>
+            {l}
+          </option>
+        ))}
+      </select>
+      <select
+        aria-label="project filter"
+        value={filters.project ?? ''}
+        onChange={(e) => setFilters({ ...filters, project: e.target.value || undefined })}
+      >
+        <option value="">all projects</option>
+        {projects.map((key) => (
+          <option key={key} value={key}>
+            {refTitle(key)}
+          </option>
+        ))}
+      </select>
+      <select
+        aria-label="problem filter"
+        value={filters.problem ?? ''}
+        onChange={(e) => setFilters({ ...filters, problem: e.target.value || undefined })}
+      >
+        <option value="">all problems</option>
+        {problems.map((key) => (
+          <option key={key} value={key}>
+            {refTitle(key)}
+          </option>
+        ))}
+      </select>
+      {Object.entries(fieldFilters).map(([field, value]) => (
+        <span data-field-filter key={field}>
+          <label>{field}</label>
+          <input
+            aria-label={'filter by ' + field}
+            value={value}
+            placeholder="value…"
+            onChange={(e) => setFieldFilters({ ...fieldFilters, [field]: e.target.value })}
+          />
+          <button
+            type="button"
+            aria-label={'remove ' + field + ' filter'}
+            onClick={() => {
+              const next = { ...fieldFilters };
+              delete next[field];
+              setFieldFilters(next);
+            }}
+          >
+            ×
+          </button>
+        </span>
+      ))}
+      {addableFields.length > 0 ? (
+        <select
+          aria-label="add field filter"
+          value=""
+          onChange={(e) => {
+            if (e.target.value) setFieldFilters({ ...fieldFilters, [e.target.value]: '' });
+          }}
+        >
+          <option value="">+ filter by field…</option>
+          {addableFields.map((f) => (
+            <option key={f} value={f}>
+              {f}
+            </option>
+          ))}
+        </select>
+      ) : null}
+    </div>
+  );
+
   return (
     <>
       <header>
@@ -417,6 +794,12 @@ function App() {
           </button>
           <button aria-current={view === 'board' || undefined} onClick={() => setView('board')}>
             board
+          </button>
+          <button aria-current={view === 'list' || undefined} onClick={() => setView('list')}>
+            list
+          </button>
+          <button aria-current={view === 'table' || undefined} onClick={() => setView('table')}>
+            table
           </button>
         </nav>
         <div data-git>
@@ -508,6 +891,19 @@ function App() {
               +
             </button>
           </div>
+          <div data-new-item>
+            <input
+              placeholder="new problem…"
+              value={newProblem}
+              onChange={(e) => setNewProblem(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') void createProblemItem();
+              }}
+            />
+            <button aria-label="create problem" onClick={() => void createProblemItem()}>
+              +
+            </button>
+          </div>
         </aside>
 
         <main data-view={view}>
@@ -520,156 +916,123 @@ function App() {
               <div data-board-toolbar>
                 <span>work items · {workItems.length}</span>
                 <span data-sep>|</span>
-                {diagnostics.length > 0 ? (
-                  <>
-                    <details data-diagnostics>
-                      <summary>
-                        {diagnostics.length} ontology {diagnostics.length === 1 ? 'note' : 'notes'}
-                      </summary>
-                      <ul>
-                        {diagnostics.map((d, i) => (
-                          <li key={d.documentId + d.key + String(i)} data-severity={d.severity}>
-                            <a
-                              href={'#' + d.documentId}
-                              onClick={(e) => {
-                                e.preventDefault();
-                                void load(d.documentId);
-                              }}
-                            >
-                              {d.path}
-                            </a>{' '}
-                            <code>{d.key}</code> — {d.message}
-                          </li>
-                        ))}
-                      </ul>
-                    </details>
-                    <span data-sep>|</span>
-                  </>
-                ) : null}
-                <div data-filters>
+                <label data-swimlane>
+                  swimlane
                   <select
-                    aria-label="status filter"
-                    value={filters.status ?? ''}
-                    onChange={(e) => setFilters({ ...filters, status: e.target.value || undefined })}
+                    aria-label="swimlane field"
+                    value={swimlaneField}
+                    onChange={(e) => setSwimlaneField(e.target.value)}
                   >
-                    <option value="">all statuses</option>
-                    {statuses.map((s) => (
-                      <option key={s} value={s}>
-                        {s}
+                    <option value="">none</option>
+                    {swimlaneFields.map((f) => (
+                      <option key={f} value={f}>
+                        {f}
                       </option>
                     ))}
                   </select>
-                  <select
-                    aria-label="assignee filter"
-                    value={filters.assignee ?? ''}
-                    onChange={(e) => setFilters({ ...filters, assignee: e.target.value || undefined })}
-                  >
-                    <option value="">all assignees</option>
-                    {assignees.map((a) => (
-                      <option key={a} value={a}>
-                        {a}
-                      </option>
-                    ))}
-                  </select>
-                  <select
-                    aria-label="priority filter"
-                    value={filters.priority ?? ''}
-                    onChange={(e) =>
-                      setFilters({
-                        ...filters,
-                        priority: e.target.value === '' ? undefined : Number(e.target.value),
-                      })
-                    }
-                  >
-                    <option value="">all priorities</option>
-                    {priorities.map((p) => (
-                      <option key={p} value={p}>
-                        {p} · {priorityLabel(p)}
-                      </option>
-                    ))}
-                  </select>
-                  <select
-                    aria-label="label filter"
-                    value={filters.label ?? ''}
-                    onChange={(e) => setFilters({ ...filters, label: e.target.value || undefined })}
-                  >
-                    <option value="">all labels</option>
-                    {labels.map((l) => (
-                      <option key={l} value={l}>
-                        {l}
-                      </option>
-                    ))}
-                  </select>
-                  <select
-                    aria-label="project filter"
-                    value={filters.project ?? ''}
-                    onChange={(e) => setFilters({ ...filters, project: e.target.value || undefined })}
-                  >
-                    <option value="">all projects</option>
-                    {projects.map((key) => (
-                      <option key={key} value={key}>
-                        {projectTitle(key)}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                </label>
+                <span data-sep>|</span>
+                {diagnosticsBar}
+                {filtersBar}
               </div>
-              <div data-board>
-                {statuses.map((col) => {
-                  const items = filteredItems.filter((w) => w.status === col);
-                  return (
-                    <section key={col}>
-                      <h3>
-                        <span>{col}</span>
-                        <small>{items.length}</small>
-                      </h3>
-                      <div data-column>
-                        {items.length === 0 ? (
-                          <div data-empty>no items</div>
-                        ) : (
-                          items.map((w) => (
-                            <article key={w.id} onClick={() => void load(w.id)}>
-                              <div data-card-head>
-                                <b>{w.title}</b>
-                                <span data-priority={w.priority ?? undefined}>{priorityLabel(w.priority)}</span>
-                              </div>
-                              <div data-card-path>
-                                {w.path} · {w.projectId ? projectTitle(w.projectId) : (w.project ?? '—')}
-                                {w.due ? ' · due ' + w.due : ''}
-                              </div>
-                              {w.labels.length > 0 ? (
-                                <ul data-labels>
-                                  {w.labels.map((l) => (
-                                    <li key={l}>{l}</li>
-                                  ))}
-                                </ul>
-                              ) : null}
-                              <div data-card-foot>
-                                <span>
-                                  {w.assignees.length === 0
-                                    ? '—'
-                                    : w.assignees.map((a) => a.id).join(', ')}
-                                </span>
-                                <select
-                                  aria-label={'status of ' + w.title}
-                                  value={w.status}
-                                  onClick={(e) => e.stopPropagation()}
-                                  onChange={(e) => void changeStatus(w.id, e.target.value)}
-                                >
-                                  {statuses.map((s) => (
-                                    <option key={s} value={s}>
-                                      {s}
-                                    </option>
-                                  ))}
-                                </select>
-                              </div>
-                            </article>
-                          ))
-                        )}
-                      </div>
-                    </section>
-                  );
-                })}
+              <div data-board data-swimlanes={swimlaneField ? '' : undefined}>
+                {swimlaneKeys.length === 0
+                  ? statuses.map((col) => renderColumn(col, filteredItems.filter((w) => w.status === col)))
+                  : swimlaneKeys.map((lane) => (
+                      <section key={lane} data-swimlane>
+                        <h2 data-lane-head>
+                          <span>{lane}</span>
+                          <small>
+                            {filteredItems.filter((w) => (swimlaneValue(w, swimlaneField) || '(none)') === lane).length}
+                          </small>
+                        </h2>
+                        <div data-lane-cols>
+                          {statuses.map((col) =>
+                            renderColumn(
+                              col,
+                              filteredItems.filter(
+                                (w) => w.status === col && (swimlaneValue(w, swimlaneField) || '(none)') === lane
+                              )
+                            )
+                          )}
+                        </div>
+                      </section>
+                    ))}
+              </div>
+            </>
+          ) : view === 'list' ? (
+            <>
+              <div data-board-toolbar>
+                <span>work items · {workItems.length}</span>
+                <span data-sep>|</span>
+                {diagnosticsBar}
+                {filtersBar}
+              </div>
+              <div data-list>
+                {filteredItems.length === 0 ? (
+                  <div data-empty>no items</div>
+                ) : (
+                  filteredItems.map((w) => (
+                    <WorkCard
+                      key={w.id}
+                      w={w}
+                      statuses={statuses}
+                      resolveTitle={refTitle}
+                      onOpen={(id) => void load(id)}
+                      onStatusChange={(id, s) => void changeStatus(id, s)}
+                    />
+                  ))
+                )}
+              </div>
+            </>
+          ) : view === 'table' ? (
+            <>
+              <div data-board-toolbar>
+                <span>work items · {workItems.length}</span>
+                <span data-sep>|</span>
+                {diagnosticsBar}
+                {filtersBar}
+              </div>
+              <div data-table-wrap>
+                <table data-table>
+                  <thead>
+                    <tr>
+                      {tableColumns.map((c) => (
+                        <th
+                          key={c.key}
+                          onClick={() => toggleSort(c.key)}
+                          aria-sort={
+                            tableSort.key === c.key
+                              ? tableSort.dir === 1
+                                ? 'ascending'
+                                : 'descending'
+                              : undefined
+                          }
+                        >
+                          {c.label}
+                          {tableSort.key === c.key ? (tableSort.dir === 1 ? ' ↑' : ' ↓') : ''}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sortedItems.length === 0 ? (
+                      <tr>
+                        <td colSpan={tableColumns.length} data-empty>
+                          no items
+                        </td>
+                      </tr>
+                    ) : (
+                      sortedItems.map((w) => (
+                        <tr key={w.id} onClick={() => void load(w.id)}>
+                          {tableColumns.map((c) => (
+                            <td key={c.key}>{c.value(w)}</td>
+                          ))}
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
               </div>
             </>
           ) : (

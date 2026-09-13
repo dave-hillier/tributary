@@ -22,10 +22,11 @@ describe('Workspace (real temp Git repo)', () => {
     const root = tempDir();
     try {
       const ws = await createDemoWorkspace(root);
-      expect(ws.documents.length).toBe(6);
+      expect(ws.documents.length).toBe(7);
       expect(ws.duplicateIds).toEqual([]);
       expect(ws.getDocument('task-1')?.frontmatter.type).toBe('work-item');
       expect(ws.getDocument('notes/hello')?.frontmatter.type).toBe('wiki');
+      expect(ws.getDocument('problem-runtime-flakiness')?.frontmatter.type).toBe('problem');
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

@@ -357,23 +357,43 @@ small { color: var(--muted); font-size: inherit; }
   padding: 0 4px;
 }
 
+#root > [data-cols] > main [data-board-toolbar] [data-swimlane] {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
 /* Board columns */
 #root > [data-cols] > main [data-board] {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  display: flex;
+  align-items: stretch;
   gap: 1px;
   background: var(--rule);
 }
 
-#root > [data-cols] > main [data-board] section {
-  background: var(--bg);
-  min-width: 0;
+#root > [data-cols] > main [data-board][data-swimlanes] {
+  flex-direction: column;
+  align-items: flex-start;
 }
 
-#root > [data-cols] > main [data-board] section > h3 {
+/* One status column. Reorderable by dragging its header. */
+#root > [data-cols] > main [data-board] section[data-col] {
+  flex: 0 0 260px;
+  min-width: 200px;
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+}
+
+#root > [data-cols] > main [data-board] section[data-col] > h3 {
   margin: 0;
   height: 26px;
   display: flex;
@@ -386,37 +406,86 @@ small { color: var(--muted); font-size: inherit; }
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+  cursor: grab;
+  user-select: none;
 }
 
-#root > [data-cols] > main [data-board] section > div[data-column] {
+#root > [data-cols] > main [data-board] section[data-col] > h3:active { cursor: grabbing; }
+
+#root > [data-cols] > main [data-board] section[data-col][data-drop-target] {
+  outline: 1px dashed var(--accent);
+  outline-offset: -1px;
+  background: var(--accent-soft);
+}
+
+#root > [data-cols] > main [data-board] section[data-col] > div[data-column] {
   padding: 8px;
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
-#root > [data-cols] > main [data-board] article {
+#root > [data-cols] > main [data-board]:not([data-swimlanes]) > section[data-col] > div[data-column] {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+/* Swimlanes: horizontal bands grouped by a frontmatter field. */
+#root > [data-cols] > main [data-board] section[data-swimlane] {
+  flex: 0 0 auto;
+  width: max-content;
+  display: flex;
+  flex-direction: column;
+}
+
+#root > [data-cols] > main [data-board] section[data-swimlane] > h2[data-lane-head] {
+  margin: 0;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0 10px;
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+  background: var(--panel);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+#root > [data-cols] > main [data-board] section[data-swimlane] > div[data-lane-cols] {
+  display: flex;
+  align-items: stretch;
+  gap: 1px;
+  background: var(--rule);
+}
+
+/* Cards */
+#root > [data-cols] > main [data-card] {
   background: var(--panel);
   border: 1px solid var(--rule);
   padding: 8px 10px;
   cursor: pointer;
 }
 
-#root > [data-cols] > main [data-board] article:hover { border-color: var(--rule-2); }
+#root > [data-cols] > main [data-card]:hover { border-color: var(--rule-2); }
 
-#root > [data-cols] > main [data-board] article [data-card-head] {
+#root > [data-cols] > main [data-card] [data-card-head] {
   display: flex;
   justify-content: space-between;
   gap: 8px;
 }
 
-#root > [data-cols] > main [data-board] article [data-card-path] {
+#root > [data-cols] > main [data-card] [data-card-path] {
   color: var(--muted);
   font-size: 11px;
   margin-top: 4px;
 }
 
-#root > [data-cols] > main [data-board] article [data-card-foot] {
+#root > [data-cols] > main [data-card] [data-card-foot] {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -425,12 +494,111 @@ small { color: var(--muted); font-size: inherit; }
   border-top: 1px dashed var(--rule);
 }
 
-#root > [data-cols] > main [data-board] [data-empty] {
+/* Empty placeholder */
+#root > [data-cols] > main [data-board] [data-empty],
+#root > [data-cols] > main [data-list] [data-empty] {
   border: 1px dashed var(--rule);
   padding: 10px;
   text-align: center;
   color: var(--muted);
 }
+
+/* List view: a single column of full-width cards. */
+#root > [data-cols] > main [data-list] {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+#root > [data-cols] > main [data-list] [data-card] {
+  max-width: 720px;
+}
+
+/* Table view */
+#root > [data-cols] > main [data-table-wrap] {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+#root > [data-cols] > main [data-table] {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+#root > [data-cols] > main [data-table] th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--panel);
+  border-bottom: 1px solid var(--rule);
+  border-right: 1px solid var(--rule);
+  padding: 6px 10px;
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  font-size: 10px;
+  color: var(--muted);
+  user-select: none;
+}
+#root > [data-cols] > main [data-table] th:hover { color: var(--ink); }
+#root > [data-cols] > main [data-table] td {
+  border-bottom: 1px solid var(--rule);
+  border-right: 1px solid var(--rule);
+  padding: 6px 10px;
+  white-space: nowrap;
+}
+#root > [data-cols] > main [data-table] tbody tr { cursor: pointer; }
+#root > [data-cols] > main [data-table] tbody tr:hover { background: var(--panel); }
+#root > [data-cols] > main [data-table] [data-empty] {
+  text-align: center;
+  color: var(--muted);
+  padding: 16px;
+}
+
+/* Generic frontmatter field filters */
+#root > [data-cols] > main [data-board-toolbar] [data-field-filter] {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  padding: 0 4px;
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  background: var(--sunk);
+}
+#root > [data-cols] > main [data-board-toolbar] [data-field-filter] label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+#root > [data-cols] > main [data-board-toolbar] [data-field-filter] input {
+  width: 90px;
+  height: 16px;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--rule);
+  color: var(--ink);
+  font-size: 11px;
+}
+#root > [data-cols] > main [data-board-toolbar] [data-field-filter] button {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0 2px;
+  font-size: 13px;
+  line-height: 1;
+}
+#root > [data-cols] > main [data-board-toolbar] [data-field-filter] button:hover { color: var(--ink); }
 
 /* Source editor strip */
 #root > [data-cols] > main [data-editor] {

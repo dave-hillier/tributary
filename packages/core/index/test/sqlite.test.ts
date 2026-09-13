@@ -64,6 +64,26 @@ describe('SqliteIndex (better-sqlite3 + FTS5)', () => {
     idx.close();
   });
 
+  it('projects and indexes problem references (ADR-005)', () => {
+    const idx = new SqliteIndex(':memory:');
+    const problem = parseMarkdown(
+      '---\nid: prob\ntitle: Runtime flakiness\ntype: problem\naliases: [flaky]\n---\n\n# Flaky\n',
+      { path: 'problems/flaky.md' },
+    );
+    const item = parseMarkdown(
+      '---\nid: t1\ntitle: Investigate\ntype: work-item\nproblem: flaky\n---\n\n# Investigate\n',
+      { path: 'items/t1.md' },
+    );
+    idx.rebuild([problem, item]);
+    const w = idx.workItems().find((x) => x.id === 't1')!;
+    expect(w.problem).toBe('flaky');
+    expect(w.problemId).toBe('prob');
+    expect(w.frontmatter.problem).toBe('flaky');
+    expect(idx.links('t1', 'problem')).toEqual(['prob']);
+    expect(idx.itemsInProblem('prob').map((x) => x.id)).toEqual(['t1']);
+    idx.close();
+  });
+
   it('keeps project grouping when the project document is renamed', () => {
     const idx = new SqliteIndex(':memory:');
     const project = parseMarkdown('---\nid: proj\ntitle: Demo\ntype: project\naliases: [demo]\n---\n\n# Demo\n', {

@@ -23,6 +23,8 @@ const api = {
     ipcRenderer.invoke('workspace:updateWorkItem', id, patch),
   createWorkItem: (input: NewWorkItem): Promise<Document> =>
     ipcRenderer.invoke('workspace:createWorkItem', input),
+  createProblem: (title: string): Promise<Document> =>
+    ipcRenderer.invoke('workspace:createProblem', title),
   diagnostics: (): Promise<Diagnostic[]> => ipcRenderer.invoke('workspace:diagnostics'),
   renameDocument: (id: string, newPath: string): Promise<Document> =>
     ipcRenderer.invoke('workspace:renameDocument', id, newPath),
