@@ -2,6 +2,8 @@ import { StrictMode, useEffect, useRef, useState } from 'react';
 import type { MouseEvent } from 'react';
 import { createRoot } from 'react-dom/client';
 import { DocumentView } from '@tributary/components';
+import CodeMirror from '@uiw/react-codemirror';
+import { markdown } from '@codemirror/lang-markdown';
 import type { Document, WorkItem } from '@tributary/api';
 
 interface HistoryEntry {
@@ -269,7 +271,7 @@ function App() {
             <DocumentView document={current} />
           </div>
           <hr />
-          <textarea value={source} onChange={(e) => onSourceChange(e.target.value)} rows={10} style={{ width: '100%' }} />
+          <CodeMirror value={source} onChange={(v) => onSourceChange(v)} extensions={[markdown()]} height="240px" />
           <button onClick={() => void onSave()}>Save (checkpoint)</button>
           {savedMsg ? <p>{savedMsg}</p> : null}
           <div>

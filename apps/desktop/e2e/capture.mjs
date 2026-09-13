@@ -102,7 +102,10 @@ await verify('Write tests');
 // 05 autosave: edit the open document and let it autosave
 await page.getByRole('button', { name: 'Ship the demo' }).first().click();
 await page.waitForTimeout(400);
-await page.locator('textarea').first().fill('---\nid: task-1\ntitle: Ship the demo\nkind: work-item\nstatus: todo\nassignee: alice\npriority: high\nproject: demo\n---\n\n# Ship the demo\n\nAutosaved edit.\n');
+const editor = page.locator('.cm-content');
+await editor.click();
+await page.keyboard.press('ControlOrMeta+End');
+await page.keyboard.insertText('\n\nAutosaved edit.');
 await page.waitForTimeout(1600);
 await verify('Autosaved');
 await shot('05-autosave');
