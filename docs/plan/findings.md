@@ -4,7 +4,8 @@
   Stage 2/3 work and hardening committed up to `26e0f9c` (09-13).
 - **Status:** Stages 0/1/2/3 committed and green. Implemented:
   findings 1, 2, 3, 5, 6, 7, 10 and the HTML-sanitisation work. Remaining open:
-  finding 8 (test breadth) and the native Electron *window* launch (finding 4 —
+  findings 8 (test breadth), 11 (cell module resolution), 15 (work-item
+  ontology) and the native Electron *window* launch (finding 4 —
   ABI now verified under Electron's bundled Node 20; the window probe needs a
   desktop session, `pnpm --filter app-desktop smoke:window`).
 
@@ -231,6 +232,52 @@ and no test either way.
 
 **Disposition:** skip the IPC call and the host when a document has no cells;
 add a test asserting it.
+
+### 15. High — The work-item ontology is flatter than the architecture's
+
+Architecture §3.3's own example document and the §4.2 frontmatter table describe
+a richer model than the code implements. Everything typed has collapsed into
+five nullable strings.
+
+| Architecture | Code | Consequence |
+|---|---|---|
+| `type: work-item` (§3.3) | `kind: work-item` | Discriminator silently renamed; nothing reads `type`, so pasting the architecture's own example yields an unclassified document. |
+| `assignees: [user:dave]` — a **list** of typed entity refs | `assignee?: string` (`'alice'`) | No multiple assignees, no distinction between a person and a string that looks like one. The board's "assignees" facet is `[...new Set(items.map(w => w.assignee))]`. |
+| `project: 01K-PROJECT…` — an **ID reference** to a project document | `project?: string` (`'demo'`) | Projects are a label, not an entity. `DocumentKind` includes `'project'` but nothing creates, renders or resolves one, and no edge in the `links` table relates an item to its project — so a project rename breaks the grouping, which is precisely what §3.1's ID-based identity exists to prevent. |
+| `priority: 2` (numeric, orderable) | `priority?: string` (`'high'`) | Priorities cannot be ordered or compared; the facet sorts alphabetically (`high` < `low` < `medium`). |
+| `labels: [runtime, notebook]` | — | Absent everywhere. |
+| `tags` (§4.2: navigation, search, query blocks) | — | Absent from `DocumentFrontmatter` and unused. |
+| `aliases` (§4.2 + §3.1 "human name = title + aliases") | Not declared in `DocumentFrontmatter`; alias resolution exists **only** in a renderer-local helper (`apps/desktop/src/renderer/main.tsx:78`) | The canonical resolver `SqliteIndex.resolve()` ignores aliases, so core link resolution and the shell disagree about what a name resolves to. |
+| `template` (§4.2) | — | Absent. |
+| `due` | Declared in `DocumentFrontmatter`, dropped from the `WorkItem` projection and the `work_items` table | A due date survives a round-trip but cannot be listed, filtered or sorted. |
+| `work/issues`, `work/projects` (§3.3, organisational) | `items/` | Cosmetic — paths are explicitly non-semantic — but it means no project documents exist to point at. |
+
+Two structural gaps sit underneath the table:
+
+- **No vocabulary and no validation.** §5.4 calls for frontmatter validation;
+  only duplicate IDs are checked. `status`, `priority` and `kind` accept any
+  string, board columns and every facet are derived from whatever the data
+  happens to contain, and a typo silently creates a new column. Being
+  schema-tolerant (§4.2) is the intent, but tolerance still needs a known
+  vocabulary to be tolerant *of*.
+- **Relationships are untyped.** `links (from_id, to_id)` carries wiki links and
+  transclusions with no relation kind, so item→project, parent/child and
+  blocks/blocked-by cannot be expressed at all — they would be
+  indistinguishable from a passing mention in prose.
+
+Stage 1's exit criteria pass as written ("status, assignee, priority and project
+filters"), so this is not a regression — the plan specified the flattened shape
+in §1.4 and the code matched it. The gap is between the plan and the
+architecture it derives from.
+
+**Disposition:** settle the ontology as an ADR before building further on it,
+covering: the `type` vs `kind` discriminator (pick one, migrate the fixtures);
+`assignees` as a list of typed refs; `project` as a document reference resolved
+through the index; numeric priority; `labels`/`tags`; `aliases` and `template`
+moved into `DocumentFrontmatter` with alias resolution in the core resolver, not
+the shell; `due` carried into the projection; and a typed `relation` column on
+`links` so entity references are distinguishable from prose mentions. A
+tolerant-but-known vocabulary with validation that reports rather than rejects.
 
 ## Decisions
 

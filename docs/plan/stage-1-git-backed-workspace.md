@@ -32,6 +32,11 @@ list/board views, and close the edit → autosave → checkpoint → history loo
 ### 1.4 Work-item projection (`@tributary/index`, `components`)
 - Project typed work-item frontmatter into list/board views with status,
   assignee, priority and project filters (§3.3).
+- **Known shortfall:** this specifies a flatter model than architecture §3.3 —
+  single `assignee` rather than an `assignees` list of typed refs, `project` as
+  a label rather than a document reference, string priority, and no
+  `labels`/`tags`/`aliases`/`template`/`due`. Implemented as specified; see
+  finding 15 for the gap against the architecture.
 - Create/assign/status/move operations edit Markdown frontmatter and trigger a
   prompt **semantic checkpoint** (§7.3).
 
