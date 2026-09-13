@@ -46,12 +46,23 @@ function text(value: string): ReactElement {
 }
 
 // ---------------------------------------------------------------------------
-// HTML sanitisation (conservative allow-list; unsafe HTML is skipped)
+// HTML sanitisation (conservative; unsafe HTML is skipped, never rendered)
 // ---------------------------------------------------------------------------
 
 const DANGEROUS_TAG =
   /<\s*(script|iframe|object|embed|form|input|select|textarea|button|style|link|meta|title|base|frame|frameset|applet|svg|math|audio|video|source|track|template|dialog|portal)\b/i;
 const EVENT_HANDLER = /\son[a-z]+\s*=/i;
+const UNSAFE_SCHEME = /\b(javascript|vbscript)\s*:/i;
+const DATA_TEXT_HTML = /data\s*:\s*text\/html/i;
+
+/** Attributes allowed to survive in document HTML (everything else is stripped). */
+const SAFE_ATTRS = new Set([
+  'class', 'id', 'lang', 'dir', 'title', 'alt',
+  'width', 'height', 'colspan', 'rowspan', 'abbr', 'scope', 'headers', 'summary',
+  'cite', 'datetime', 'rel', 'download',
+]);
+/** Attribute names whose value is a URL subject to scheme checking. */
+const URL_ATTRS = new Set(['href', 'src', 'action', 'formaction', 'poster', 'cite']);
 
 const BLOCK_TAGS = new Set([
   'address', 'article', 'aside', 'blockquote', 'details', 'dialog', 'div',
@@ -60,6 +71,36 @@ const BLOCK_TAGS = new Set([
   'ol', 'ul', 'li', 'p', 'pre', 'section', 'table', 'thead', 'tbody',
   'tfoot', 'tr', 'th', 'td', 'caption', 'col', 'colgroup',
 ]);
+
+/** Decode character references in a COPY used only for checks (raw HTML from
+ * markdown is passed through verbatim, so `&#106;avascript:` would otherwise
+ * bypass a literal-substring check — the browser decodes it to `javascript:`). */
+function decodeEntitiesForCheck(input: string): string {
+  let out = '';
+  let i = 0;
+  const re = /&(#x[0-9a-f]+|#[0-9]+|[a-z][a-z0-9]*);/gi;
+  const named: Record<string, string> = {
+    amp: '&', lt: '<', gt: '>', quot: '"', apos: "'",
+    nbsp: ' ', period: '.', colon: ':', semi: ';', tab: '\t',
+  };
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(input))) {
+    out += input.slice(i, m.index);
+    let decoded: string | undefined = named[m[1]!.toLowerCase()];
+    if (decoded === undefined) {
+      const body = m[1]!;
+      const code = body.startsWith('#x')
+        ? parseInt(body.slice(2), 16)
+        : body.startsWith('#') ? parseInt(body.slice(1), 10) : Number.NaN;
+      if (Number.isFinite(code) && code > 32 && code < 0xd800) {
+        decoded = String.fromCodePoint(code);
+      }
+    }
+    out += decoded ?? m[0];
+    i = m.index + m[0].length;
+  }
+  return out + input.slice(i);
+}
 
 function leadingTagName(html: string): string | null {
   const match = /^\s*<([a-zA-Z][a-zA-Z0-9]*)/.exec(html);
@@ -72,14 +113,52 @@ function isBlockHtml(html: string): boolean {
   return tag !== null && BLOCK_TAGS.has(tag);
 }
 
-/** Return the sanitised HTML, or null when it must be skipped as unsafe. */
+/** Only http(s), mailto, tel and relative/fragment URLs are allowed. */
+function isSafeUrl(value: string): boolean {
+  const v = value.trim();
+  if (v === '') return true;
+  if (v.startsWith('#') || v.startsWith('/')) return true;
+  return /^(https?:|mailto:|tel:)/i.test(v);
+}
+
+/** True when every attribute on every opening tag is allowed. */
+function attributesAreSafe(html: string): boolean {
+  const tagRe = /<\s*([a-zA-Z][a-zA-Z0-9]*)((?:\s+[a-zA-Z-]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'=<>`]+))?)*)\s*\/?>/g;
+  const attrRe = /\s+([a-zA-Z-]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g;
+  let tag: RegExpExecArray | null;
+  while ((tag = tagRe.exec(html))) {
+    const rawAttrs = tag[2] ?? '';
+    let a: RegExpExecArray | null;
+    while ((a = attrRe.exec(rawAttrs))) {
+      const name = a[1]!.toLowerCase();
+      const value = (a[2] ?? a[3] ?? a[4] ?? '').trim();
+      if (name.startsWith('on')) return false;
+      if (name === 'style') return false;
+      // URL attributes are allowed only when the URL itself is safe; all other
+      // attribute names must be in the allow-list.
+      const isUrlAttr = URL_ATTRS.has(name);
+      if (!isUrlAttr && !SAFE_ATTRS.has(name)) return false;
+      if (isUrlAttr && !isSafeUrl(value)) return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Sanitise a raw HTML fragment for display. Returns the HTML when it is safe
+ * (allowed tags, allow-listed attributes, safe URLs, no event handlers), or
+ * null when any part is unsafe — in which case the whole fragment is skipped
+ * rather than partially rendered (arch §8: HTML is inert or absent).
+ */
 function sanitizeHtml(raw: string): string | null {
   const html = raw.trim();
   if (html === '') return null;
-  if (DANGEROUS_TAG.test(html)) return null;
-  if (EVENT_HANDLER.test(html)) return null;
-  if (/\b(javascript|vbscript)\s*:/i.test(html)) return null;
-  if (/data\s*:\s*text\/html/i.test(html)) return null;
+  const checked = decodeEntitiesForCheck(html);
+  if (DANGEROUS_TAG.test(checked)) return null;
+  if (EVENT_HANDLER.test(checked)) return null;
+  if (UNSAFE_SCHEME.test(checked)) return null;
+  if (DATA_TEXT_HTML.test(checked)) return null;
+  if (!attributesAreSafe(checked)) return null;
   return html;
 }
 

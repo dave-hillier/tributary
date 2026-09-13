@@ -122,6 +122,50 @@ describe('DocumentView', () => {
     expect(html).not.toContain('javascript:');
   });
 
+  it('rejects entity-encoded, event-handler, style and data-URL smuggling', () => {
+    const html = renderDoc({
+      type: 'root',
+      children: [
+        // `&#106;` decodes to `j` — must not bypass the javascript: check.
+        { type: 'html', value: '<a href="&#106;avascript:alert(1)">enc</a>' },
+        // Event handler on a benign tag.
+        { type: 'html', value: '<img src="x.png" onerror="alert(1)">' },
+        // style attribute (CSS injection surface).
+        { type: 'html', value: '<div style="position:fixed">x</div>' },
+        // Non-image data: URL.
+        { type: 'html', value: '<img src="data:text/html;base64,PHNvbGQ=">' },
+        // Arbitrary attribute.
+        { type: 'html', value: '<div onclick="alert(1)">y</div>' },
+        // Case-insensitive vbscript.
+        { type: 'html', value: '<a href="VBScRiPt:x()">z</a>' },
+      ],
+    });
+
+    expect(html).not.toContain('&#106;');
+    expect(html).not.toContain('onerror');
+    expect(html).not.toContain('onclick');
+    expect(html).not.toContain('style=');
+    expect(html).not.toContain('text/html');
+    expect(html).not.toContain('vbscript');
+  });
+
+  it('keeps safe links and attributes', () => {
+    const html = renderDoc({
+      type: 'root',
+      children: [
+        { type: 'html', value: '<a href="https://example.com" rel="nofollow">link</a>' },
+        { type: 'html', value: '<a href="/local/path" title="t">rel</a>' },
+        { type: 'html', value: '<blockquote cite="https://src">q</blockquote>' },
+        { type: 'html', value: '<table><tr><td colspan="2">x</td></tr></table>' },
+      ],
+    });
+
+    expect(html).toContain('https://example.com');
+    expect(html).toContain('/local/path');
+    expect(html).toContain('cite=');
+    expect(html).toContain('colspan');
+  });
+
   it('degrades an unknown node type to a code fence', () => {
     const html = renderDoc({
       type: 'root',
