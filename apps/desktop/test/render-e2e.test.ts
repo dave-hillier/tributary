@@ -68,6 +68,11 @@ describe('Stage 1 slice: the Git round-trip', () => {
       expect(renamed.path).toBe('items/write-tests.md');
       expect(renamed.frontmatter.id).toBe('task-2');
       expect(service.listWorkItems().find((w) => w.id === 'task-2')?.title).toBe('Write tests');
+
+      // Backlinks: which documents link to a given document.
+      const inbound = service.backlinks('task-1').map((d) => d.id);
+      expect(inbound).toContain('index');
+      expect(inbound).toContain('notes/hello');
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

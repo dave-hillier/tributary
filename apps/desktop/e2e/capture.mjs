@@ -42,6 +42,7 @@ const expose = {
   saveDocument: (doc, msg) => service.saveDocument(doc, msg),
   history: (id) => service.history(id),
   resolveLink: (t) => service.resolveLink(t),
+  backlinks: (id) => service.backlinks(id),
   search: (q) => service.search(q),
   listWorkItems: () => service.listWorkItems(),
   updateWorkItem: (id, patch) => service.updateWorkItem(id, patch),
@@ -77,13 +78,17 @@ async function shot(name) {
 await shot('01-board');
 await verify('Ship the demo');
 
-// 02 rename a work item, board still shows it by id
+// 02 backlinks: load a work item and show what links to it
 await page.getByRole('button', { name: 'Ship the demo' }).first().click();
 await page.waitForTimeout(400);
+await verify('Linked from');
+await shot('02-backlinks');
+
+// 03 rename the same item; board still shows it by id
 await page.getByPlaceholder('Rename to path (e.g. items/foo.md)').fill('items/ship-demo.md');
 await page.getByRole('button', { name: 'Rename' }).click();
 await page.waitForTimeout(600);
-await shot('02-renamed');
+await shot('03-renamed');
 await verify('Ship the demo');
 
 await browser.close();

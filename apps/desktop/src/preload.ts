@@ -14,6 +14,7 @@ const api = {
     ipcRenderer.invoke('workspace:saveDocument', doc, message),
   history: (id: string): Promise<HistoryEntry[]> => ipcRenderer.invoke('workspace:history', id),
   resolveLink: (target: string): Promise<Document | null> => ipcRenderer.invoke('workspace:resolveLink', target),
+  backlinks: (id: string): Promise<Document[]> => ipcRenderer.invoke('workspace:backlinks', id),
   search: (query: string): Promise<Document[]> => ipcRenderer.invoke('workspace:search', query),
   listWorkItems: (): Promise<WorkItem[]> => ipcRenderer.invoke('workspace:listWorkItems'),
   updateWorkItem: (id: string, patch: Record<string, unknown>): Promise<Document> =>

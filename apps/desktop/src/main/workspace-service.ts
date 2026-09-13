@@ -43,6 +43,13 @@ export class WorkspaceService {
     return this.index?.resolve(target) ?? null;
   }
 
+  backlinks(id: DocumentId): Document[] {
+    const ids = this.index?.backlinks(id) ?? [];
+    return ids
+      .map((bid) => this.workspace?.getDocument(bid))
+      .filter((d): d is Document => d !== undefined);
+  }
+
   async saveDocument(doc: Document, message?: string): Promise<{ commit: string | null; changed: boolean }> {
     const workspace = this.workspace;
     const index = this.index;

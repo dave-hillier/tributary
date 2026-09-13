@@ -29,6 +29,7 @@ interface TributaryApi {
   saveDocument: (doc: Document, message?: string) => Promise<SaveResult>;
   history: (id: string) => Promise<HistoryEntry[]>;
   resolveLink: (target: string) => Promise<Document | null>;
+  backlinks: (id: string) => Promise<Document[]>;
   search: (query: string) => Promise<Document[]>;
   listWorkItems: () => Promise<WorkItem[]>;
   updateWorkItem: (id: string, patch: Record<string, unknown>) => Promise<Document>;
@@ -53,6 +54,7 @@ function App() {
   const [workItems, setWorkItems] = useState<WorkItem[]>([]);
   const [newTitle, setNewTitle] = useState('');
   const [renamePath, setRenamePath] = useState('');
+  const [backlinks, setBacklinks] = useState<Document[]>([]);
 
   const load = async (id: string): Promise<void> => {
     const d = await window.tributary.getDocument(id);
@@ -60,6 +62,7 @@ function App() {
       setCurrent(d);
       setSource(d.source ?? '');
       setHistory(await window.tributary.history(id));
+      setBacklinks(await window.tributary.backlinks(id));
     }
   };
 
@@ -205,6 +208,14 @@ function App() {
             <input value={renamePath} onChange={(e) => setRenamePath(e.target.value)} placeholder="Rename to path (e.g. items/foo.md)" />
             <button onClick={() => void onRename()}>Rename</button>
           </div>
+          <h3>Linked from</h3>
+          <ul>
+            {backlinks.map((b) => (
+              <li key={b.id}>
+                <button onClick={() => void load(b.id)}>{b.frontmatter.title ?? b.id}</button>
+              </li>
+            ))}
+          </ul>
           <h3>History</h3>
           <ul>
             {history.map((h) => (
