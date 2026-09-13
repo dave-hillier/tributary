@@ -27,8 +27,9 @@ losing source formatting important to Git diffs." We did not meet that: we
 
 **Resolved:** hybrid — preserve **cell bodies and frontmatter raw text**
 byte-for-byte, serialize **prose canonically** (stable). Full source-preservation
-of prose is out of scope for v1. See ADR-001 (round-trip fidelity). Implementation
-pending: keep frontmatter as raw YAML (not re-serialized); cells already verbatim.
+of prose is out of scope for v1. See ADR-001 (round-trip fidelity). **Implemented:**
+raw frontmatter preservation + `updateFrontmatter` (`bd0e7a7`); prose stays
+canonical. The inline-parser holes (finding 6) remain.
 
 ### 2. Critical — Stable IDs are path-derived, not assigned
 
@@ -40,8 +41,9 @@ create/import") is not done — we only *detect* duplicates.
 
 **Resolved:** assign a generated id on first create/import and persist it into
 `frontmatter.id`; backfill id-less existing docs on first edit/save (not on open,
-to avoid surprise writes); path-derived id is a read-only fallback. Implementation
-pending (Stage 1.2).
+to avoid surprise writes); path-derived id is a read-only fallback. **Implemented:**
+`createWorkItem` assigns + persists a UUID (`c3a3ca6`). Backfill of id-less docs on
+first save still pending.
 
 ### 3. High — No save-time concurrency safety
 
@@ -53,7 +55,7 @@ gap between this and a real Git-backed editor.
 **Resolved:** base-blob optimistic concurrency **now** — track the base blob SHA
 per open doc and refuse to clobber a stale base (surface the conflict). Line-based
 three-way merge is the immediate follow-up; interactive merge UI later.
-Implementation pending (Stage 1.5).
+**Implemented:** stale-base guard (`69d8aaa`); three-way merge still follow-up.
 
 ### 4. High — Electron path unverified; native binding ABI mismatch
 
@@ -75,8 +77,7 @@ Implementation pending.
 every file) to refresh the index, and `save()` commits even when nothing
 changed. Fine for the 5-file demo; not for a real repo.
 
-**Disposition:** per-document invalidation and skip-the-commit when the file is
-unchanged (or when the new content equals `HEAD`).
+**Implemented:** per-doc re-parse + no-op commit skip (`69d8aaa`).
 
 ### 6. Medium — Inline parser is regex-based with known holes; positions dropped
 
