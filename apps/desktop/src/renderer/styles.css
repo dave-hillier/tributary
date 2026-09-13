@@ -787,3 +787,33 @@ small { color: var(--muted); font-size: inherit; }
   font-size: 12px;
   line-height: 1.5;
 }
+
+/* in-place block editing — click a rendered text section to edit its Markdown */
+[data-doc] .tributary-editable {
+  cursor: text;
+  border-radius: 2px;
+}
+[data-doc] .tributary-editable:hover {
+  outline: 1px dashed var(--rule-2);
+  outline-offset: 2px;
+  background: var(--accent-soft);
+}
+[data-doc] textarea.block-editor {
+  display: block;
+  width: 100%;
+  margin: 0 0 0.9em;
+  padding: 6px 8px;
+  background: var(--panel);
+  border: 1px solid var(--accent);
+  border-radius: 0;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--ink);
+  resize: vertical;
+}
+[data-doc] textarea.block-editor:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}

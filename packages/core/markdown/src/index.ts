@@ -2,7 +2,7 @@ import { unified } from 'unified';
 import remarkParse from 'remark-parse';
 import remarkGfm from 'remark-gfm';
 import remarkStringify from 'remark-stringify';
-import type { Document, DocumentFrontmatter, Root } from '@tributary/api';
+import type { Document, DocumentFrontmatter, Root, Node } from '@tributary/api';
 import { parseFrontmatter, stringifyFrontmatter } from './frontmatter.js';
 import { inlineLinksPlugin } from './inline.js';
 import { typedFencesPlugin } from './blocks.js';
@@ -80,4 +80,49 @@ export function replaceCellSource(source: string, cellIndex: number, newCellSour
   const end = frontmatterLength + cell.position.end.offset;
   const fence = '\u0060\u0060\u0060' + cell.lang + '\n' + newCellSource.replace(/\n+$/, '') + '\n\u0060\u0060\u0060';
   return source.slice(0, start) + fence + source.slice(end);
+}
+
+/**
+ * Compute the offset of the parsed body within the full source (i.e. the
+ * length of the frontmatter block including its trailing newline). Node
+ * positions from the parser are relative to the body; this maps them onto the
+ * full source so spans can be spliced byte-for-byte.
+ */
+function bodyOffset(source: string): number {
+  const { body } = parseFrontmatter(source);
+  return source.length - body.length;
+}
+
+/**
+ * Extract the raw Markdown source span of a node from its document, using the
+ * node's source position. Returns null when the document has no source or the
+ * node has no position offsets (e.g. hand-built ASTs in tests).
+ */
+export function nodeSource(doc: Document, node: Node): string | null {
+  if (!doc.source) return null;
+  const pos = node.position;
+  if (!pos || pos.start.offset === undefined || pos.end.offset === undefined) return null;
+  const offset = bodyOffset(doc.source);
+  const start = offset + pos.start.offset;
+  const end = offset + pos.end.offset;
+  if (start < 0 || end < start || end > doc.source.length) return null;
+  return doc.source.slice(start, end);
+}
+
+/**
+ * Replace the raw Markdown source span of a node in its document with new
+ * source text and re-parse the result into a fresh Document. Everything
+ * outside the node's span (frontmatter and all other blocks) is preserved
+ * byte-for-byte. Returns null when the span cannot be located.
+ */
+export function replaceNodeSource(doc: Document, node: Node, newSource: string): Document | null {
+  if (!doc.source) return null;
+  const pos = node.position;
+  if (!pos || pos.start.offset === undefined || pos.end.offset === undefined) return null;
+  const offset = bodyOffset(doc.source);
+  const start = offset + pos.start.offset;
+  const end = offset + pos.end.offset;
+  if (start < 0 || end < start || end > doc.source.length) return null;
+  const full = doc.source.slice(0, start) + newSource + doc.source.slice(end);
+  return parseMarkdown(full, { path: doc.path });
 }

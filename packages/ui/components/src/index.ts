@@ -12,9 +12,10 @@
  */
 
 import { createElement, Fragment, createContext, useContext, useEffect, useRef, useState, cloneElement } from 'react';
-import type { ChangeEvent, ReactElement, ReactNode } from 'react';
+import type { ChangeEvent, KeyboardEvent, MouseEvent, ReactElement, ReactNode } from 'react';
 import type {
   Document,
+  Node,
   Heading,
   Text,
   InlineCode,
@@ -29,7 +30,7 @@ import type {
 } from '@tributary/api';
 import type { CellResult } from '@tributary/notebook';
 import { createDocumentRenderer } from '@tributary/render';
-import type { ComponentRegistry, NodeComponent } from '@tributary/render';
+import type { ComponentRegistry, NodeComponent, RenderContext } from '@tributary/render';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -163,6 +164,107 @@ function sanitizeHtml(raw: string): string | null {
 }
 
 // ---------------------------------------------------------------------------
+// In-place block editing (click a rendered text section to edit its Markdown)
+// ---------------------------------------------------------------------------
+
+/**
+ * Supplies the raw Markdown source of a block node and persists a replacement
+ * back into the document. Provided by the shell (which owns the workspace);
+ * components stay pure. When no resolver is wired, blocks render read-only.
+ */
+export interface EditResolver {
+  /** Raw Markdown source of a block node, or null when it has no source span. */
+  sourceOf: (doc: Document, node: Node) => string | null;
+  /** Persist a replacement Markdown source for a block node. */
+  update: (doc: Document, node: Node, source: string) => Promise<void>;
+}
+
+export const EditContext = createContext<EditResolver | null>(null);
+
+/**
+ * Wraps a block-level text node (paragraph, heading, list item, blockquote,
+ * table cell) so it can be edited in place: clicking it swaps the rendered
+ * block for a textarea pre-filled with its Markdown source. Commits on blur or
+ * Cmd/Ctrl+Enter, cancels on Escape. Link clicks bubble through untouched.
+ */
+function EditableBlock(props: {
+  node: Node;
+  ctx: RenderContext;
+  tag: string;
+  children: ReactNode;
+}): ReactElement {
+  const resolver = useContext(EditContext);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const source = resolver ? resolver.sourceOf(props.ctx.document, props.node) : null;
+
+  // No resolver wired (bare DocumentView, headless tests) or no source span
+  // (hand-built ASTs): render exactly as before, with no edit affordance.
+  if (!resolver || source === null) {
+    return createElement(props.tag, null, props.children);
+  }
+
+  if (!editing) {
+    return createElement(
+      props.tag,
+      {
+        className: 'tributary-editable',
+        'data-editable': props.node.type,
+        title: 'Click to edit',
+        onClick: (e: MouseEvent<HTMLElement>) => {
+          // Let link clicks (wiki links, transclusions) pass through unchanged.
+          if ((e.target as HTMLElement).closest('a')) return;
+          e.stopPropagation();
+          setDraft(source);
+          setEditing(true);
+        },
+      },
+      props.children,
+    );
+  }
+
+  const commit = async (): Promise<void> => {
+    if (saving) return;
+    const next = draft;
+    setEditing(false);
+    if (next !== source) {
+      setSaving(true);
+      try {
+        await resolver.update(props.ctx.document, props.node, next);
+      } finally {
+        setSaving(false);
+      }
+    }
+  };
+
+  const cancel = (): void => setEditing(false);
+
+  const rows = Math.min(16, Math.max(1, draft.split('\n').length));
+
+  return createElement('textarea', {
+    className: 'block-editor',
+    'data-block-editor': props.node.type,
+    value: draft,
+    rows,
+    autoFocus: true,
+    title: 'Cmd/Ctrl+Enter to save · Esc to cancel',
+    onChange: (e: ChangeEvent<HTMLTextAreaElement>) => setDraft(e.target.value),
+    onBlur: () => void commit(),
+    onKeyDown: (e: KeyboardEvent<HTMLTextAreaElement>) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+        e.preventDefault();
+        void commit();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        cancel();
+      }
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Concrete components
 // ---------------------------------------------------------------------------
 
@@ -171,11 +273,11 @@ function sanitizeHtml(raw: string): string | null {
 const rootComponent: NodeComponent = ({ children }) =>
   createElement(Fragment, null, children);
 
-const paragraphComponent: NodeComponent = ({ children }) =>
-  createElement('p', null, children);
+const paragraphComponent: NodeComponent = ({ node, children, ctx }) =>
+  createElement(EditableBlock, { node, ctx, tag: 'p', children });
 
-const headingComponent: NodeComponent = ({ node, children }) =>
-  createElement('h' + (node as Heading).depth, null, children);
+const headingComponent: NodeComponent = ({ node, children, ctx }) =>
+  createElement(EditableBlock, { node, ctx, tag: 'h' + (node as Heading).depth, children });
 
 const textComponent: NodeComponent = ({ node }) =>
   text((node as Text).value);
@@ -231,11 +333,11 @@ const listComponent: NodeComponent = ({ node, children }) => {
   return createElement('ul', null, children);
 };
 
-const listItemComponent: NodeComponent = ({ children }) =>
-  createElement('li', null, children);
+const listItemComponent: NodeComponent = ({ node, children, ctx }) =>
+  createElement(EditableBlock, { node, ctx, tag: 'li', children });
 
-const blockquoteComponent: NodeComponent = ({ children }) =>
-  createElement('blockquote', null, children);
+const blockquoteComponent: NodeComponent = ({ node, children, ctx }) =>
+  createElement(EditableBlock, { node, ctx, tag: 'blockquote', children });
 
 const htmlComponent: NodeComponent = ({ node }) => {
   const safe = sanitizeHtml((node as Html).value);
@@ -252,8 +354,8 @@ const tableComponent: NodeComponent = ({ children }) =>
 const tableRowComponent: NodeComponent = ({ children }) =>
   createElement('tr', null, children);
 
-const tableCellComponent: NodeComponent = ({ children }) =>
-  createElement('td', null, children);
+const tableCellComponent: NodeComponent = ({ node, children, ctx }) =>
+  createElement(EditableBlock, { node, ctx, tag: 'td', children });
 
 // Frontmatter (YAML) is carried on Document.frontmatter and not re-rendered in
 // the body; reference definitions are invisible metadata.

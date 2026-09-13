@@ -1,9 +1,9 @@
 import { StrictMode, Fragment, useEffect, useRef, useState } from 'react';
 import type { KeyboardEvent, MouseEvent } from 'react';
 import { createRoot } from 'react-dom/client';
-import { DocumentView, CellContext, TransclusionContext } from '@tributary/components';
-import type { CellResolver, CellResult, TransclusionResolver } from '@tributary/components';
-import { findSection } from '@tributary/markdown';
+import { DocumentView, CellContext, TransclusionContext, EditContext } from '@tributary/components';
+import type { CellResolver, CellResult, TransclusionResolver, EditResolver } from '@tributary/components';
+import { findSection, nodeSource, replaceNodeSource } from '@tributary/markdown';
 import CodeMirror from '@uiw/react-codemirror';
 import { markdown } from '@codemirror/lang-markdown';
 import type { Document, WorkItem, Cell } from '@tributary/api';
@@ -321,6 +321,28 @@ function App() {
     indexOf: (cell) => cellsRef.current.indexOf(cell),
   };
 
+  // In-place block editing: splice the edited Markdown back into the document
+  // source byte-for-byte, commit, then refresh the open view. Editing a
+  // transcluded document also refreshes the docs list so embeds re-resolve.
+  const editResolver: EditResolver = {
+    sourceOf: (doc, node) => nodeSource(doc, node),
+    update: async (doc, node, newSource) => {
+      const updated = replaceNodeSource(doc, node, newSource);
+      if (!updated) {
+        setSavedMsg('Edit failed: block has no source position');
+        return;
+      }
+      try {
+        const result = await window.tributary.saveDocument(updated, 'edit block');
+        setSavedMsg(result.changed ? 'Saved ' + (result.commit ?? '').slice(0, 7) : 'No changes');
+        setDocs(await window.tributary.listDocuments());
+        if (current) await load(current.id);
+      } catch (e) {
+        setSavedMsg('Edit failed: ' + String(e));
+      }
+    },
+  };
+
   // ── Derived values ─────────────────────────────────────────────────────
 
   const statuses = [...new Set([...COLUMN_ORDER, ...workItems.map((w) => w.status)])];
@@ -606,7 +628,9 @@ function App() {
                     <div data-doc={current.id} onClick={onDocClick}>
                       <CellContext.Provider value={cellResolver}>
                         <TransclusionContext.Provider value={makeTransclusionResolver(docs)}>
-                          <DocumentView document={current} />
+                          <EditContext.Provider value={editResolver}>
+                            <DocumentView document={current} />
+                          </EditContext.Provider>
                         </TransclusionContext.Provider>
                       </CellContext.Provider>
                     </div>

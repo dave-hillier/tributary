@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { renderToString } from 'react-dom/server';
 import { createElement } from 'react';
-import { DocumentView, TransclusionContext } from '@tributary/components';
-import type { TransclusionResolver } from '@tributary/components';
+import { DocumentView, TransclusionContext, EditContext } from '@tributary/components';
+import type { TransclusionResolver, EditResolver } from '@tributary/components';
 import type { Document } from '@tributary/api';
 
 function renderDoc(root: Document['root']): string {
@@ -377,5 +377,55 @@ describe('transclusion embedding (Stage 2)', () => {
     );
     expect(html).toContain('Transclusion depth limit reached');
     expect(html).toContain('data-transclusion-error');
+  });
+});
+describe('in-place block editing', () => {
+  const resolver: EditResolver = {
+    sourceOf: () => 'raw markdown',
+    update: async () => {},
+  };
+
+  it('marks text blocks as editable when a resolver is wired', () => {
+    const doc: Document = {
+      id: 'doc-1',
+      path: 'index.md',
+      frontmatter: {},
+      source: '# Title\n\nHello world.\n',
+      root: {
+        type: 'root',
+        children: [
+          { type: 'heading', depth: 1, children: [{ type: 'text', value: 'Title' }] },
+          { type: 'paragraph', children: [{ type: 'text', value: 'Hello world.' }] },
+        ],
+      },
+    };
+    const html = renderToString(
+      createElement(EditContext.Provider, { value: resolver }, createElement(DocumentView, { document: doc })),
+    );
+    expect(html).toContain('data-editable="heading"');
+    expect(html).toContain('data-editable="paragraph"');
+    expect(html).toContain('tributary-editable');
+    expect(html).toContain('<h1');
+    expect(html).toContain('Title');
+    expect(html).toContain('Hello world.');
+  });
+
+  it('renders read-only (no edit affordance) without a resolver', () => {
+    const doc: Document = {
+      id: 'doc-1',
+      path: 'index.md',
+      frontmatter: {},
+      source: '# Title\n',
+      root: {
+        type: 'root',
+        children: [
+          { type: 'heading', depth: 1, children: [{ type: 'text', value: 'Title' }] },
+        ],
+      },
+    };
+    const html = renderToString(createElement(DocumentView, { document: doc }));
+    expect(html).not.toContain('tributary-editable');
+    expect(html).not.toContain('data-editable');
+    expect(html).toContain('<h1>Title</h1>');
   });
 });
