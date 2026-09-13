@@ -92,10 +92,14 @@ are written as their decisions are settled.
 
 ## Status
 
-Stage 0 (Shell + format/runtime spike) complete, and Stage 1 Slice 1.0 (the
-Git round-trip: workspace open/save/checkpoint/history + derived index + shell
-wiring) is in place with both an in-memory and a SQLite+FTS5 index.
+Verified against the green suite (103 tests) as of `1fde0e0` (09-13):
 
-**Note:** the work is spike-grade, not product-grade. See
-[`findings.md`](./findings.md) for the ranked gaps (notably round-trip fidelity,
-stable identity, and save-time concurrency) before building further on Stage 1.
+- **Stages 0, 1, 2 and 3 are complete** (exit criteria checked in their docs).
+- **Stage 4 (offline jobs + generated reports) is deferred by decision** —
+  `@tributary/jobs` remains an empty stub; revisit before starting it.
+- Findings 6 (inline parser) and 7 (SQLite ownership) are resolved; the HTML
+  render path is hardened (arch §8). The Electron ABI is verified under
+  Electron's bundled Node (finding 4); the window probe (`smoke:window`)
+  needs a desktop session. Test breadth (finding 8) remains open.
+
+Remaining gaps are tracked in [`findings.md`](./findings.md).

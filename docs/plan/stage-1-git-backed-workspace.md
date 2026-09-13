@@ -4,6 +4,8 @@
 **Outcome:** The first genuinely usable offline product: open a local Git
 repository, browse/edit/autosave/checkpoint Markdown knowledge and Markdown-
 backed work items, and rebuild all derived state locally.
+**Status:** ✅ complete — exit criteria pass against real temporary Git repos
+and the desktop git round-trip e2e at `575549b` (09-13).
 
 ## Goal
 
@@ -46,20 +48,22 @@ list/board views, and close the edit → autosave → checkpoint → history loo
 
 ## Exit criteria
 
-- [ ] Open a repo, navigate docs + work items, edit either, see autosaved
+- [x] Open a repo, navigate docs + work items, edit either, see autosaved
       checkpoint history, and assign/move work items — all from the Git-backed
       model, no separate work-item database.
-- [ ] A rename/move preserves relationships (ID-based, golden + integration
+- [x] A rename/move preserves relationships (ID-based, golden + integration
       fixture).
-- [ ] Deleting and rebuilding the derived index preserves behaviour.
-- [ ] Integrated against **real temporary Git repositories**, not mocks.
-- [ ] All non-shell packages build/test with no Electron dependency.
+- [x] Deleting and rebuilding the derived index preserves behaviour.
+- [x] Integrated against **real temporary Git repositories**, not mocks.
+- [x] All non-shell packages build/test with no Electron dependency.
 
 **The first offline-desktop milestone; everything after builds on a real repo + index.**
 
 ## Known gaps
 
-See [`findings.md`](./findings.md). In particular: identity is path-derived so
-renames break links (finding 2), save has no base-blob/three-way-merge
-concurrency safety (finding 3), and the edit path re-parses the whole workspace
-and commits no-op saves (finding 5).
+The gaps flagged during review (findings 2, 3, 5) are now implemented: stable-ID
+assignment + backfill on save (`c3a3ca6`, `9982d85`), stale-base guard +
+three-way merge on divergent same-file edits (`69d8aaa`, `702416a`), and per-doc
+invalidation with no-op-commit skip (`69d8aaa`). Open items remain in
+[`findings.md`](./findings.md) — chiefly the inline parser rewrite (finding 6)
+and the SQLite hybrid (finding 7).

@@ -2,6 +2,11 @@
 
 **Source:** architecture §10 "Slice 2".
 **Outcome:** Make documents composable without turning the format into MDX.
+**Status:** ✅ complete — `![[target#heading]]` resolves through the index and
+embeds real content (whole doc or heading section) in the shell; cycles and
+depth are guarded with visible inline diagnostics; suite green at `c875aed`
+(09-13). The block registry adds no new native blocks: unknown nodes already
+degrade to code fences.
 
 ## Goal
 
@@ -31,10 +36,10 @@ links with embedded documents.
 
 ## Exit criteria
 
-- [ ] A home page is mostly links but embeds a selected report/doc.
-- [ ] Transcluded content follows document renames/moves.
-- [ ] Circular transclusion fails visibly and safely (no hang, inline
+- [x] A home page is mostly links but embeds a selected report/doc.
+- [x] Transcluded content follows document renames/moves.
+- [x] Circular transclusion fails visibly and safely (no hang, inline
       diagnostic, recursion + depth guarded — §8).
-- [ ] Unknown blocks degrade to code fences; nothing corrupts.
+- [x] Unknown blocks degrade to code fences; nothing corrupts.
 
 **Composable documents; still fully Markdown-first.**

@@ -4,6 +4,14 @@
 **Outcome:** Add computational documents while retaining Markdown-first
 authoring — fenced blocks are notebook cells, and TSX is the native language
 for rich rendered output.
+**Status:** ✅ complete — cells compile and run end-to-end (esbuild+acorn),
+edit reactively with per-dependant invalidation, and persist back into the
+`.md`; suite green at `575549b` (09-13). The ADR-004 capability boundary is
+enforced (`0bb6c94`): cells run behind a scope lock that denies ambient runtime
+powers and freezes the granted `api`/`components` surface. Cells execute in the
+app main process (compiled/evaluated there, results serialised to the
+renderer); full separate-process isolation remains a Stage 7 hardening item —
+see [`findings.md`](./findings.md).
 
 ## Goal
 
@@ -90,20 +98,23 @@ Markdown
 - Render cell outputs per the output-semantics table; Replot consumes data
   without owning the DOM (§6.1).
 
-## Open decisions
+## Resolved decisions (ADR-004)
 
-- Executable marker: explicit vs inferred-from-language (ADR-004).
-- Trust posture: permissive v1 vs §8 sandboxing.
-- Compilation location: worker vs separate process.
+- **Executable marker** — cell-by-default for `js`/`ts`/`jsx`/`tsx` fences,
+  with a `source` opt-out; execution is never inferred from other languages.
+- **Trust posture** — permissive `@tributary/api` capabilities for v1
+  (workspaces are trusted); sandboxing deferred to Stage 7.
+- **Compilation location** — the worker/process boundary is the recorded v1
+  posture; implemented in-process for now (open finding).
 
 ## Exit criteria
 
-- [ ] A cell defines data and a downstream `tsx` cell renders it reactively.
-- [ ] Editing an upstream cell recomputes only dependants (stale async disposed).
-- [ ] Plain wiki docs incur **no notebook runtime cost**.
-- [ ] A `tsx` cell renders an app component (`Replot`, `WorkItem`) from the
+- [x] A cell defines data and a downstream `tsx` cell renders it reactively.
+- [x] Editing an upstream cell recomputes only dependants (stale async disposed).
+- [x] Plain wiki docs incur **no notebook runtime cost**.
+- [x] A `tsx` cell renders an app component (`Replot`, `WorkItem`) from the
       final expression with no `display()` call.
-- [ ] Execution stays behind `NotebookHost` + the capability boundary.
+- [x] Execution stays behind `NotebookHost` + the capability boundary.
 
 **Computational documents, still `.md` — TSX lives inside cells, never at the
 document level.**
