@@ -2,13 +2,10 @@
 
 - **Scope:** originally Stages 0–1 (up to `5215935`); now tracked through the
   Stage 2/3 work and hardening committed up to `26e0f9c` (09-13).
-- **Status:** Stages 0/1/2/3 committed and green. Implemented:
-  findings 1, 2, 3, 5, 6, 7, 10, 12 and the HTML-sanitisation work, plus the
-  module-resolution core of finding 11. Remaining open: finding 8 (test
-  breadth), the component-rendering half of finding 11 (imported React
-  components still can't cross the IPC boundary to the renderer) and the native
-  Electron *window* launch (finding 4 — ABI now verified under Electron's
-  bundled Node 20; the window probe needs a desktop session,
+- **Status:** Stages 0/1/2/3 committed and green. Implemented: findings
+  1, 2, 3, 5, 6, 7, 8, 10, 11, 12, 14 and the HTML-sanitisation work. Remaining
+  open: the native Electron *window* launch (finding 4 — ABI now verified under
+  Electron's bundled Node 20; the window probe needs a desktop session,
   `pnpm --filter app-desktop smoke:window`).
 
 This is an honest assessment of the work so far. The skeleton and the
@@ -137,6 +134,13 @@ frontmatter comments, setext/`~~~` fidelity, adversarial wiki-link input.
 **Disposition:** add failure-path and fidelity tests as the corresponding fixes
 land.
 
+**Implemented:** the listed failure paths are now covered — duplicate-id
+surfacing, non-repo open, clobbering/concurrent saves (`workspace.test.ts`),
+frontmatter comments + setext canonicalization with verbatim cell bodies
+(`markdown.test.ts`), adversarial wiki-link input (`inline.test.ts`), and
+per-cell runtime/compile error isolation (notebook `resolve`/`reactive`
+tests).
+
 ### 9. Low — Process: orchestration cost and review-tooling limits
 
 - The "model/thinking level per task" request could not be honored — the
@@ -205,13 +209,17 @@ the desktop `WorkspaceService` resolves relative specifiers against the
 workspace root and bare specifiers against the workspace's `node_modules`,
 falling back to the host app's. Covered by `test/resolve.test.ts`.
 
-**Remaining (not module resolution):** an imported *React component* (e.g.
-Replot's `BarY`) evaluates in the main process to a React element whose
-`type` is a function, and functions cannot cross the IPC/serialization
-boundary to the renderer (`serializeCellOutput` stringifies them). Rendering
-such a component end-to-end needs cell *evaluation* in the renderer (or a
-component-serialization scheme) — separate work with ADR-004 ("never in the
-renderer") implications, still open.
+**Resolved (rendering half):** cell evaluation now runs in the renderer where
+React renders, while esbuild compilation stays in the main process.
+`@tributary/notebook` is split into a compile entry (esbuild) and an
+esbuild-free `@tributary/notebook/runtime` entry; the desktop service exposes
+`compileDocument`/`updateCell` (compiled JS + graph metadata) over IPC, and
+the renderer reconstructs a `ReactiveHost`, evaluates with full React, and
+renders live React nodes — so an imported component (e.g. Replot) reaches the
+DOM directly. `CellContext` now resolves live `ReactNode` instead of
+serialized `CellResult`. Covered end-to-end by
+`apps/desktop/test/cell-render.test.ts`, which renders a cell importing a
+workspace component to HTML.
 
 ### 12. Medium — The capability-import shim only matches double-quoted specifiers
 
@@ -260,6 +268,10 @@ and no test either way.
 
 **Disposition:** skip the IPC call and the host when a document has no cells;
 add a test asserting it.
+
+**Implemented:** the service short-circuits zero-cell documents and the
+renderer skips the compile IPC round-trip entirely; a notebook test asserts an
+empty document evaluates to no outputs.
 
 ### 15. High — The work-item ontology is flatter than the architecture's *(resolved — ADR-005)*
 

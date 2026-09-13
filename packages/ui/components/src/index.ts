@@ -11,7 +11,7 @@
  * survives a conservative allow-list sanitizer, otherwise it is skipped.
  */
 
-import { createElement, Fragment, createContext, useContext, useEffect, useRef, useState, cloneElement } from 'react';
+import { createElement, Fragment, createContext, useContext, useEffect, useRef, useState } from 'react';
 import type { ChangeEvent, KeyboardEvent, MouseEvent, ReactElement, ReactNode } from 'react';
 import type {
   Document,
@@ -28,7 +28,6 @@ import type {
   Transclusion,
   Cell,
 } from '@tributary/api';
-import type { CellResult } from '@tributary/notebook';
 import { createDocumentRenderer } from '@tributary/render';
 import type { ComponentRegistry, NodeComponent, RenderContext } from '@tributary/render';
 import { InlineEditor } from './prosemirror/InlineEditor.js';
@@ -510,53 +509,20 @@ const transclusionComponent: NodeComponent = ({ node, ctx }) => {
   );
 };
 
+/** A cell's live render output, produced by the renderer-side evaluator. */
+export interface CellRenderResult {
+  node: ReactNode;
+  error: boolean;
+}
+
 export interface CellResolver {
-  resolve: (cell: Cell) => CellResult | undefined;
+  resolve: (cell: Cell) => CellRenderResult | undefined;
   update: (cell: Cell, source: string) => Promise<void>;
   /** 0-based position of the cell in document order, when the host knows it. */
   indexOf?: (cell: Cell) => number;
 }
 
 export const CellContext = createContext<CellResolver | null>(null);
-
-function deserializeNode(v: unknown): ReactNode {
-  if (Array.isArray(v)) {
-    return v.map((item, i) => {
-      const rendered = deserializeNode(item);
-      // Key array elements (React reconciliation) when they are elements.
-      return rendered && typeof rendered === 'object' && 'type' in rendered
-        ? cloneElement(rendered as ReactElement, { key: i })
-        : rendered;
-    });
-  }
-  if (v && typeof v === 'object' && 'kind' in v) {
-    const r = v as CellResult;
-    if (r.kind === 'element') return deserializeElement(r.type, r.props);
-    if (r.kind === 'value') return r.text;
-    if (r.kind === 'error') return r.message;
-    return null;
-  }
-  return v as ReactNode;
-}
-
-function deserializeElement(type: string, props: Record<string, unknown>): ReactElement {
-  const p: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(props)) p[k] = deserializeNode(v);
-  return createElement(type, p);
-}
-
-function renderResult(result: CellResult): ReactNode {
-  switch (result.kind) {
-    case 'element':
-      return deserializeElement(result.type, result.props);
-    case 'value':
-      return createElement('pre', { className: 'cell-output' }, result.text);
-    case 'error':
-      return createElement('pre', { className: 'cell-error' }, result.message);
-    case 'undefined':
-      return createElement(Fragment, null);
-  }
-}
 
 function CellView({ cell }: { cell: Cell }): ReactElement {
   const resolver = useContext(CellContext);
@@ -584,7 +550,7 @@ function CellView({ cell }: { cell: Cell }): ReactElement {
   const result = resolver.resolve(cell);
   const index = resolver.indexOf ? resolver.indexOf(cell) : undefined;
   const status: string =
-    !result ? 'pending' : result.kind === 'error' ? 'error' : 'ok';
+    !result ? 'pending' : result.error ? 'error' : 'ok';
   const label =
     (cell.lang ?? 'cell') + (index !== undefined ? ' · cell ' + (index + 1) : '');
 
@@ -628,7 +594,7 @@ function CellView({ cell }: { cell: Cell }): ReactElement {
     createElement(
       'div',
       { 'data-cell-body': '' },
-      result === undefined ? null : renderResult(result),
+      result === undefined ? null : result.node,
     ),
     editing
       ? createElement('textarea', {
@@ -687,5 +653,3 @@ export const defaultRegistry: ComponentRegistry = {
 export function DocumentView(props: { document: Document }): ReactElement {
   return createDocumentRenderer(defaultRegistry)(props.document);
 }
-
-export type { CellResult } from '@tributary/notebook';

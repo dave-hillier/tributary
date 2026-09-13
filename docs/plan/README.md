@@ -99,12 +99,10 @@ are written as their decisions are settled.
 
 Verified against the green suite as of `26e0f9c` (09-13):
 
-- **Stages 0, 1 and 2 are complete**; **Stage 3 is substantially complete** —
-  cells compile, run, invalidate and persist, and a `tsx` cell renders React
-  from its final expression. Cells can now `import` bare packages, relative
-  modules, defaults and namespaces (finding 11 module-resolution core); the
-  remaining gap is rendering an *imported React component* end-to-end, since a
-  component function can't cross the main→renderer IPC boundary yet.
+- **Stages 0, 1, 2 and 3 are complete** — cells compile (in the main process),
+  run, invalidate and persist, `import` bare/relative/default/namespace
+  modules, and evaluate in the renderer with full React so an imported component
+  (e.g. Replot) renders end-to-end (finding 11).
 - **Stage 4 (offline jobs + generated reports) is deferred by decision** —
   `@tributary/jobs` remains an empty stub; revisit before starting it.
 - The work-item **ontology is settled and implemented** (ADR-005, finding 15):
@@ -112,10 +110,10 @@ Verified against the green suite as of `26e0f9c` (09-13):
   reference, numeric priority, first-class labels/tags/aliases/due, typed
   relations in the index, and validation that reports rather than rejects. It
   lives in `@tributary/ontology`.
-- Findings 6 (inline parser), 7 (SQLite ownership) and 12 (capability-import
-  shim) are resolved; the HTML render path is hardened (arch §8). The Electron
-  ABI is verified under Electron's bundled Node (finding 4); the window probe
-  (`smoke:window`) needs a desktop session. Open: test breadth (8) and the
-  component-rendering half of finding 11.
+- Findings 6 (inline parser), 7 (SQLite ownership), 8 (test breadth), 11 (cell
+  module resolution + renderer-side evaluation), 12 (capability-import shim) and
+  14 (no notebook cost for plain docs) are resolved; the HTML render path is
+  hardened (arch §8). The Electron ABI is verified under Electron's bundled Node
+  (finding 4); only the window probe (`smoke:window`) needs a desktop session.
 
 Remaining gaps are tracked in [`findings.md`](./findings.md).

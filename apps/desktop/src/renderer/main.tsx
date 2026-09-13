@@ -1,8 +1,10 @@
-import { StrictMode, Fragment, useEffect, useRef, useState } from 'react';
+import React, { StrictMode, Fragment, useEffect, useRef, useState } from 'react';
 import type { KeyboardEvent, MouseEvent, ReactElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { DocumentView, CellContext, TransclusionContext, EditContext } from '@tributary/components';
-import type { CellResolver, CellResult, TransclusionResolver, EditResolver } from '@tributary/components';
+import type { CellResolver, CellRenderResult, TransclusionResolver, EditResolver } from '@tributary/components';
+import { ReactiveHost } from '@tributary/notebook/runtime';
+import type { CompiledReactiveCell } from '@tributary/notebook/runtime';
 import { findSection, nodeSource, replaceNodeSource } from '@tributary/markdown';
 import CodeMirror from '@uiw/react-codemirror';
 import { markdown } from '@codemirror/lang-markdown';
@@ -38,8 +40,8 @@ interface TributaryApi {
   renameDocument: (id: string, newPath: string) => Promise<Document>;
   addRemote: (url: string, name?: string) => Promise<void>;
   sync: () => Promise<string>;
-  evaluateDocument: (docId: string, cells: { lang: string; source: string }[]) => Promise<CellResult[]>;
-  updateCell: (docId: string, cellIndex: number, source: string) => Promise<CellResult[]>;
+  compileDocument: (cells: { lang: string; source: string }[]) => Promise<CompiledReactiveCell[]>;
+  updateCell: (docId: string, cellIndex: number, source: string, lang: string) => Promise<CompiledReactiveCell>;
 }
 
 declare global {
@@ -57,6 +59,20 @@ function collectCells(doc: Document): Cell[] {
   };
   walk(doc.root);
   return out;
+}
+
+/** Map a cell's evaluated value to a live render node + error flag. */
+function outputToNode(value: unknown): CellRenderResult {
+  if (value instanceof Error) {
+    return { node: React.createElement('pre', { className: 'cell-error' }, value.message), error: true };
+  }
+  if (value === undefined) return { node: React.createElement(Fragment, null), error: false };
+  if (React.isValidElement(value)) return { node: value, error: false };
+  let text: string;
+  if (typeof value === 'string') text = value;
+  else if (typeof value === 'object' && value !== null) text = JSON.stringify(value, null, 2) ?? String(value);
+  else text = String(value);
+  return { node: React.createElement('pre', { className: 'cell-output' }, text), error: false };
 }
 
 function titleOf(doc: Document): string {
@@ -226,8 +242,10 @@ function App() {
   const [renamePath, setRenamePath] = useState('');
   const [renameOpen, setRenameOpen] = useState(false);
   const [syncStatus, setSyncStatus] = useState('');
-  const [cellResults, setCellResults] = useState<Map<Cell, CellResult>>(new Map());
+  const [cellResults, setCellResults] = useState<Map<Cell, CellRenderResult>>(new Map());
   const cellsRef = useRef<Cell[]>([]);
+  const hostRef = useRef<ReactiveHost | null>(null);
+  const dataRef = useRef<{ workItems: WorkItem[]; docs: Document[] }>({ workItems: [], docs: [] });
   const [backlinks, setBacklinks] = useState<Document[]>([]);
   const [diff, setDiff] = useState('');
   const [filters, setFilters] = useState<{
@@ -258,6 +276,40 @@ function App() {
     document.documentElement.dataset.theme = theme;
   }, [theme]);
 
+  // Keep the synchronous capability snapshot in sync with React state (cells
+  // call workItems()/listDocuments() synchronously, like the main-process API).
+  useEffect(() => {
+    dataRef.current.docs = docs;
+  }, [docs]);
+  useEffect(() => {
+    dataRef.current.workItems = workItems;
+  }, [workItems]);
+
+  const rendererApi = {
+    workItems: () => dataRef.current.workItems,
+    listDocuments: () => dataRef.current.docs,
+    query: (q: string) => window.tributary.search(q),
+  };
+  const rendererContext = () => ({ React, api: rendererApi, components: {} });
+
+  /** Compile cells in main, then evaluate them here where React renders. */
+  const evaluateCells = async (cells: Cell[]): Promise<void> => {
+    if (cells.length === 0) {
+      hostRef.current = null;
+      setCellResults(new Map());
+      return;
+    }
+    const compiled = await window.tributary.compileDocument(
+      cells.map((c) => ({ lang: c.lang, source: c.value as string }))
+    );
+    const host = new ReactiveHost(compiled);
+    hostRef.current = host;
+    const outs = await host.evaluate(rendererContext());
+    const map = new Map<Cell, CellRenderResult>();
+    cells.forEach((c, i) => map.set(c, outputToNode(outs[i])));
+    setCellResults(map);
+  };
+
   const load = async (id: string): Promise<void> => {
     const d = await window.tributary.getDocument(id);
     if (d) {
@@ -270,19 +322,7 @@ function App() {
       setDiff(await window.tributary.diff(id).catch(() => ''));
       const cells = collectCells(d);
       cellsRef.current = cells;
-      // Plain docs skip the evaluate IPC round-trip entirely (finding 14).
-      const results =
-        cells.length === 0
-          ? []
-          : await window.tributary
-              .evaluateDocument(d.id, cells.map((c) => ({ lang: c.lang, source: c.value as string })))
-              .catch(() => [] as CellResult[]);
-      const map = new Map<Cell, CellResult>();
-      cells.forEach((c, i) => {
-        const res = results[i];
-        if (res) map.set(c, res);
-      });
-      setCellResults(map);
+      await evaluateCells(cells);
     }
   };
 
@@ -397,12 +437,12 @@ function App() {
     if (!current) return;
     const idx = cellsRef.current.indexOf(cell);
     if (idx < 0) return;
-    const results = await window.tributary.updateCell(current.id, idx, source).catch(() => [] as CellResult[]);
-    const map = new Map<Cell, CellResult>();
-    cellsRef.current.forEach((c, i) => {
-      const res = results[i];
-      if (res) map.set(c, res);
-    });
+    const compiled = await window.tributary.updateCell(current.id, idx, source, cell.lang);
+    const host = hostRef.current;
+    if (!host) return;
+    const outs = await host.update(idx, compiled, rendererContext());
+    const map = new Map<Cell, CellRenderResult>();
+    cellsRef.current.forEach((c, i) => map.set(c, outputToNode(outs[i])));
     setCellResults(map);
   };
 

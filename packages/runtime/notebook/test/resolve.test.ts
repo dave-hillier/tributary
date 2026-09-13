@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import {
   compileCell,
   compileDocument,
+  compileReactiveCell,
   evaluateCell,
   ReactiveHost,
   type ResolveOptions,
@@ -93,8 +94,7 @@ describe('per-cell error isolation (finding 12)', () => {
         { lang: 'js', source: 'const good = 1' },
         { lang: 'js', source: 'import { missing } from "this-package-does-not-exist"\nmissing' },
         { lang: 'js', source: 'good + 1' },
-      ],
-      resolve
+      ].map((c) => compileReactiveCell(c.source, c.lang, resolve))
     );
     const outs = await host.evaluate({ React: { createElement } });
     expect(outs[0]).toBeUndefined();

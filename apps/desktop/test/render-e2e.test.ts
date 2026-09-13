@@ -99,7 +99,7 @@ describe('Stage 1 slice: the Git round-trip', () => {
       expect(service.listWorkItems().find((w) => w.id === 'task-2')?.title).toBe('Write tests');
 
       // Per-cell edit persists to the .md (and commits).
-      await service.updateCell('index', 0, 'const greeting = "Persisted greeting"');
+      await service.updateCell('index', 0, 'const greeting = "Persisted greeting"', 'js');
       const reloaded = service.getDocument('index');
       expect(reloaded!.source).toContain('Persisted greeting');
       expect(reloaded!.source).not.toContain('Tributary renders TSX cells here.');

@@ -122,10 +122,9 @@ Markdown
       runs for every document (finding 14).
 - [x] A `tsx` cell renders a React component from the final expression with no
       `display()` call.
-- [~] A cell can `import` a component library (e.g. Replot) — **imports now
-      resolve** (bare/relative/default/namespace, finding 11 module-resolution
-      core); an imported component function still can't cross the main→renderer
-      IPC boundary to render, so a Replot chart remains the open half.
+- [x] A cell can `import` a component library (e.g. Replot) — imports resolve
+      and cells evaluate in the renderer with full React, so an imported
+      component renders end-to-end (finding 11).
 - [x] Execution stays behind `NotebookHost` + the capability boundary.
 
 **Computational documents, still `.md` — TSX lives inside cells, never at the

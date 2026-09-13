@@ -6,8 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { Workspace, createDemoWorkspace, type CommitInfo } from '@tributary/workspace';
 import { SqliteIndex } from '@tributary/index';
 import { parseMarkdown, updateFrontmatter, replaceCellSource } from '@tributary/markdown';
-import { ReactiveHost, serializeCellOutput, type CellResult, type ResolveOptions } from '@tributary/notebook';
-import { createElement, Fragment } from 'react';
+import { compileReactiveCell, type CompiledReactiveCell, type CellLanguage, type ResolveOptions } from '@tributary/notebook';
 import type { Document, DocumentId, NewWorkItem, WorkItem } from '@tributary/api';
 import { formatRef, parseRef, type Diagnostic } from '@tributary/ontology';
 
@@ -18,23 +17,9 @@ import { formatRef, parseRef, type Diagnostic } from '@tributary/ontology';
 /** The desktop app's own node_modules (host fallback for cell imports). */
 const APP_NODE_MODULES = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'node_modules');
 
-function collectCells(doc: Document): { lang: string; source: string }[] {
-  const out: { lang: string; source: string }[] = [];
-  const walk = (n: any): void => {
-    if (n.type === 'cell') out.push({ lang: n.lang, source: n.value as string });
-    if (n.children) for (const c of n.children) walk(c);
-  };
-  walk(doc.root);
-  return out;
-}
-
 export class WorkspaceService {
   private workspace: Workspace | null = null;
   private index: SqliteIndex | null = null;
-  private hosts = new Map<string, ReactiveHost>();
-  private cellContext() {
-    return { React: { createElement, Fragment }, api: this.capabilities, components: {} };
-  }
 
   /**
    * Where cell imports resolve: relative specifiers against the workspace
@@ -48,11 +33,6 @@ export class WorkspaceService {
       nodePaths: root ? [join(root, 'node_modules'), APP_NODE_MODULES] : [APP_NODE_MODULES],
     };
   }
-  private capabilities = {
-    workItems: () => this.listWorkItems(),
-    listDocuments: () => this.listDocuments(),
-    query: (q: string) => this.search(q),
-  };
 
   /** Open a freshly-seeded demo workspace (ephemeral, for the slice). */
   async openDemo(): Promise<void> {
@@ -140,40 +120,30 @@ export class WorkspaceService {
     return workspace.getDocument(id) ?? updated;
   }
 
-  async evaluateDocument(docId: string, cells: { lang: string; source: string }[]): Promise<CellResult[]> {
-    // Plain wiki docs (zero cells) must not construct a ReactiveHost or run an
-    // evaluation (finding 14).
-    if (cells.length === 0) return [];
-    const host = new ReactiveHost(
-      cells.map((c) => ({ lang: c.lang as 'js' | 'ts' | 'jsx' | 'tsx', source: c.source })),
-      this.resolveOptions()
+  /**
+   * Compile a document's cells to self-contained JS + graph metadata (esbuild
+   * runs here in the main process). The renderer evaluates them — React
+   * components cannot cross the IPC boundary, so evaluation lives where React
+   * renders (finding 11).
+   */
+  compileDocument(cells: { lang: string; source: string }[]): CompiledReactiveCell[] {
+    return cells.map((c) =>
+      compileReactiveCell(c.source, c.lang as CellLanguage, this.resolveOptions())
     );
-    this.hosts.set(docId, host);
-    const values = await host.evaluate(this.cellContext());
-    return values.map(serializeCellOutput);
   }
 
-  async updateCell(docId: string, cellIndex: number, source: string): Promise<CellResult[]> {
+  /** Persist a cell edit and recompile just that cell (finding 11). */
+  async updateCell(docId: string, cellIndex: number, source: string, lang: string): Promise<CompiledReactiveCell> {
     const workspace = this.workspace;
-    if (!workspace) return [];
+    if (!workspace) throw new Error('Workspace not open');
     const doc = workspace.getDocument(docId);
-    if (!doc || !doc.source) return [];
-    // Persist the cell edit into the .md and commit, then recompute dependants.
+    if (!doc || !doc.source) throw new Error('Document not found: ' + docId);
+    // Persist the cell edit into the .md and commit, then hand back the
+    // recompiled cell for the renderer to re-evaluate.
     const newFullSource = replaceCellSource(doc.source, cellIndex, source);
     const updatedDoc = parseMarkdown(newFullSource, { path: doc.path });
     await workspace.save(updatedDoc, 'edit cell');
-    let host = this.hosts.get(docId);
-    if (!host) {
-      host = new ReactiveHost(
-        collectCells(updatedDoc).map((c) => ({ lang: c.lang as 'js' | 'ts' | 'jsx' | 'tsx', source: c.source })),
-        this.resolveOptions()
-      );
-      this.hosts.set(docId, host);
-      const values = await host.evaluate(this.cellContext());
-      return values.map(serializeCellOutput);
-    }
-    const values = await host.update(cellIndex, source, this.cellContext());
-    return values.map(serializeCellOutput);
+    return compileReactiveCell(source, lang as CellLanguage, this.resolveOptions());
   }
 
   async addRemote(url: string, name = 'origin'): Promise<void> {

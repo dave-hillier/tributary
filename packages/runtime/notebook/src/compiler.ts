@@ -1,6 +1,7 @@
 import { transformSync } from 'esbuild';
 import { parse } from 'acorn';
 import { resolveImports, type ResolveOptions } from './resolve.js';
+import type { CompiledReactiveCell } from './reactive.js';
 
 export type CellLanguage = 'js' | 'ts' | 'jsx' | 'tsx';
 
@@ -157,3 +158,101 @@ export async function evaluateCell(
 ) {
   return compileCell(source, lang, options)(scope);
 }
+function collectIdentifiers(js: string): Set<string> {
+  const names = new Set<string>();
+  let ast;
+  try {
+    ast = parse(js, { ecmaVersion: 'latest', sourceType: 'module' });
+  } catch {
+    return names;
+  }
+  const walk = (node: any): void => {
+    if (!node || typeof node !== 'object') return;
+    if (Array.isArray(node)) {
+      node.forEach(walk);
+      return;
+    }
+    if (node.type === 'Identifier' && typeof node.name === 'string') names.add(node.name);
+    for (const key of Object.keys(node)) {
+      if (key === 'start' || key === 'end' || key === 'loc' || key === 'type' || key === 'name') continue;
+      walk(node[key]);
+    }
+  };
+  walk(ast);
+  return names;
+}
+
+/**
+ * Compile one cell to its self-contained JS body plus dependency metadata
+ * (esbuild; main process only). The returned object is fully serializable so a
+ * renderer can reconstruct a runner via \`makeReactiveRunner\` without esbuild.
+ *
+ * Top-level \`const X = ...\` declarations are written to the shared \`scope\`
+ * object; references to other cells' names resolve through \`with (scope)\`.
+ * Imports are bundled into a preamble hoisted OUTSIDE the \`with\` block so
+ * imported bindings stay per-cell. A cell that cannot be compiled yields a
+ * throwing body, so one bad cell does not fail the whole document.
+ */
+export function compileReactiveCell(source: string, lang: CellLanguage, options: ResolveOptions = {}): CompiledReactiveCell {
+  try {
+    const js = transformSync(shimImports(source), {
+      loader: lang,
+      jsx: 'transform',
+      jsxFactory: 'React.createElement',
+      jsxFragment: 'React.Fragment',
+    }).code;
+    const resolved = resolveImports(js, options);
+    if (resolved.unresolved) throw new Error('unresolved import');
+
+    const refs = collectIdentifiers(resolved.body);
+    const provided: string[] = [];
+
+    let ast;
+    try {
+      ast = parse(resolved.body, { ecmaVersion: 'latest', sourceType: 'module' });
+    } catch {
+      ast = null;
+    }
+
+    let body: string;
+    if (!ast || ast.body.length === 0) {
+      body = 'with (scope) { return undefined; }';
+    } else {
+      let out = 'with (scope) {';
+      let cursor = 0;
+      const stmts = ast.body;
+      for (let idx = 0; idx < stmts.length; idx++) {
+        const stmt = stmts[idx]!;
+        out += resolved.body.slice(cursor, stmt.start);
+        if (stmt.type === 'VariableDeclaration') {
+          out += resolved.body.slice(stmt.start, stmt.end);
+          const names = stmt.declarations
+            .filter((d) => d.id.type === 'Identifier')
+            .map((d) => (d.id as any).name as string);
+          for (const n of names) {
+            provided.push(n);
+            refs.delete(n);
+            out += '\nscope.' + n + ' = ' + n + ';';
+          }
+        } else if (idx === stmts.length - 1 && stmt.type === 'ExpressionStatement') {
+          out += 'return (' + resolved.body.slice(stmt.expression.start, stmt.expression.end) + ');';
+        } else {
+          out += resolved.body.slice(stmt.start, stmt.end);
+        }
+        cursor = stmt.end;
+      }
+      out += '}';
+      body = out;
+    }
+
+    return { provided, refs: [...refs], js: resolved.preamble + '\n' + body };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return {
+      provided: [],
+      refs: [],
+      js: 'throw new Error(' + JSON.stringify('Cell compile error: ' + msg) + ');',
+    };
+  }
+}
+

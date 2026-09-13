@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type { Document, NewWorkItem, WorkItem } from '@tributary/api';
 import type { Diagnostic } from '@tributary/ontology';
+import type { CompiledReactiveCell } from '@tributary/notebook';
 
 interface HistoryEntry {
   hash: string;
@@ -31,8 +32,8 @@ const api = {
   addRemote: (url: string, name?: string): Promise<void> =>
     ipcRenderer.invoke('workspace:addRemote', url, name),
   sync: (): Promise<string> => ipcRenderer.invoke('workspace:sync'),
-  evaluateDocument: (docId: string, cells: { lang: string; source: string }[]): Promise<unknown[]> => ipcRenderer.invoke('workspace:evaluateDocument', docId, cells),
-  updateCell: (docId: string, cellIndex: number, source: string): Promise<unknown[]> => ipcRenderer.invoke('workspace:updateCell', docId, cellIndex, source),
+  compileDocument: (cells: { lang: string; source: string }[]): Promise<CompiledReactiveCell[]> => ipcRenderer.invoke('workspace:compileDocument', cells),
+  updateCell: (docId: string, cellIndex: number, source: string, lang: string): Promise<CompiledReactiveCell> => ipcRenderer.invoke('workspace:updateCell', docId, cellIndex, source, lang),
 };
 
 contextBridge.exposeInMainWorld('tributary', api);

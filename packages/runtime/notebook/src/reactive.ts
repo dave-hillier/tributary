@@ -1,37 +1,12 @@
-import { transformSync } from 'esbuild';
-import { parse } from 'acorn';
-import type { CellLanguage } from './compiler.js';
-import { shimImports } from './compiler.js';
-import { resolveImports, type ResolveOptions } from './resolve.js';
-
-const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
-
-function collectIdentifiers(js: string): Set<string> {
-  const names = new Set<string>();
-  let ast;
-  try {
-    ast = parse(js, { ecmaVersion: 'latest', sourceType: 'module' });
-  } catch {
-    return names;
-  }
-  const walk = (node: any): void => {
-    if (!node || typeof node !== 'object') return;
-    if (Array.isArray(node)) {
-      node.forEach(walk);
-      return;
-    }
-    if (node.type === 'Identifier' && typeof node.name === 'string') names.add(node.name);
-    for (const key of Object.keys(node)) {
-      if (key === 'start' || key === 'end' || key === 'loc' || key === 'type' || key === 'name') continue;
-      walk(node[key]);
-    }
-  };
-  walk(ast);
-  return names;
-}
+/**
+ * Renderer-safe notebook runtime: evaluates already-compiled cells with the
+ * shared-scope reactive model. This module deliberately imports NO esbuild and
+ * NO acorn, so it can be bundled into the browser renderer (see
+ * @tributary/notebook/runtime). Compilation lives in compiler.ts (main only).
+ */
 
 export interface ReactiveCell {
-  lang: CellLanguage;
+  lang: 'js' | 'ts' | 'jsx' | 'tsx';
   source: string;
 }
 
@@ -41,106 +16,34 @@ export interface ReactiveContext {
   components?: unknown;
 }
 
+/** A cell already compiled to a self-contained JS body plus its graph metadata. */
 export interface CompiledReactiveCell {
+  /** Top-level names this cell writes into the shared scope. */
   provided: string[];
-  refs: Set<string>;
-  run: (scope: Record<string, unknown>, context: ReactiveContext) => Promise<unknown>;
+  /** Names this cell references (for dependency detection). */
+  refs: string[];
+  /** Self-contained JS: import preamble + the \`with (scope) { … }\` block. */
+  js: string;
 }
 
-/**
- * Compile one cell so it shares a scope with others: top-level \`const X = ...\`
- * declarations are written to the shared \`scope\` object, references to other
- * cells' names resolve through \`with (scope)\`, and the final expression is
- * the cell's output.
- *
- * Imports are resolved (bundled) into a self-contained preamble that is hoisted
- * OUTSIDE the \`with (scope)\` block so imported bindings stay per-cell and are
- * never written back into the shared scope. A cell that cannot be compiled is
- * returned as a cell whose \`run\` throws a descriptive error, so one bad cell
- * does not fail the whole document.
- */
-export function compileReactiveCell(source: string, lang: CellLanguage, options: ResolveOptions = {}): CompiledReactiveCell {
-  try {
-    const js = transformSync(shimImports(source), {
-      loader: lang,
-      jsx: 'transform',
-      jsxFactory: 'React.createElement',
-      jsxFragment: 'React.Fragment',
-    }).code;
-    const resolved = resolveImports(js, options);
-    if (resolved.unresolved) throw new Error('unresolved import');
+const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
 
-    const refs = collectIdentifiers(resolved.body);
-    const provided: string[] = [];
-
-    let ast;
-    try {
-      ast = parse(resolved.body, { ecmaVersion: 'latest', sourceType: 'module' });
-    } catch {
-      ast = null;
-    }
-
-    let body: string;
-    if (!ast || ast.body.length === 0) {
-      body = 'with (scope) { return undefined; }';
-    } else {
-      let out = 'with (scope) {';
-      let cursor = 0;
-      const stmts = ast.body;
-      for (let idx = 0; idx < stmts.length; idx++) {
-        const stmt = stmts[idx]!;
-        out += resolved.body.slice(cursor, stmt.start);
-        if (stmt.type === 'VariableDeclaration') {
-          out += resolved.body.slice(stmt.start, stmt.end);
-          const names = stmt.declarations
-            .filter((d) => d.id.type === 'Identifier')
-            .map((d) => (d.id as any).name as string);
-          for (const n of names) {
-            provided.push(n);
-            refs.delete(n);
-            out += '\nscope.' + n + ' = ' + n + ';';
-          }
-        } else if (idx === stmts.length - 1 && stmt.type === 'ExpressionStatement') {
-          out += 'return (' + resolved.body.slice(stmt.expression.start, stmt.expression.end) + ');';
-        } else {
-          out += resolved.body.slice(stmt.start, stmt.end);
-        }
-        cursor = stmt.end;
-      }
-      out += '}';
-      body = out;
-    }
-
-    const fn = new AsyncFunction('scope', '__scope', 'React', resolved.preamble + '\n' + body);
-    return {
-      provided,
-      refs,
-      run: (scope, context) => fn(scope, { api: context.api, components: context.components }, context.React),
-    };
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    return {
-      provided: [],
-      refs: new Set(),
-      run: async () => {
-        throw new Error('Cell compile error: ' + msg);
-      },
-    };
-  }
+/** Reconstruct a runnable cell from its compiled JS (no esbuild required). */
+export function makeReactiveRunner(compiled: CompiledReactiveCell) {
+  const fn = new AsyncFunction('scope', '__scope', 'React', compiled.js);
+  return (scope: Record<string, unknown>, context: ReactiveContext): Promise<unknown> =>
+    fn(scope, { api: context.api, components: context.components }, context.React);
 }
 
 export class ReactiveHost {
-  private compiled: CompiledReactiveCell[] = [];
   private scope: Record<string, unknown> = {};
   private outputs: unknown[] = [];
   private reverse = new Map<number, number[]>();
+  private runners: Array<(scope: Record<string, unknown>, context: ReactiveContext) => Promise<unknown>> = [];
   lastEvaluated: number[] = [];
 
-  constructor(
-    private cells: ReactiveCell[],
-    private options: ResolveOptions = {}
-  ) {
-    this.compiled = cells.map((c) => compileReactiveCell(c.source, c.lang, this.options));
+  constructor(private cells: CompiledReactiveCell[]) {
+    this.runners = cells.map(makeReactiveRunner);
     this.buildReverse();
   }
 
@@ -159,7 +62,7 @@ export class ReactiveHost {
     const out: number[] = [];
     for (let j = 0; j < this.cells.length; j++) {
       if (j === i) continue;
-      if (this.compiled[j]!.provided.some((p) => this.compiled[i]!.refs.has(p))) {
+      if (this.cells[j]!.provided.some((p) => this.cells[i]!.refs.includes(p))) {
         out.push(j);
       }
     }
@@ -189,8 +92,10 @@ export class ReactiveHost {
 
   private async evaluateOne(i: number, context: ReactiveContext): Promise<void> {
     try {
-      this.outputs[i] = await this.compiled[i]!.run(this.scope, context);
+      this.outputs[i] = await this.runners[i]!(this.scope, context);
     } catch (e) {
+      // Per-cell error isolation: a thrown cell becomes that cell's error
+      // output rather than failing the whole document.
       this.outputs[i] = e instanceof Error ? e : new Error(String(e));
     }
   }
@@ -206,10 +111,9 @@ export class ReactiveHost {
     return this.outputs;
   }
 
-  async update(i: number, newSource: string, context: ReactiveContext): Promise<unknown[]> {
-    const cell = this.cells[i]!;
-    this.cells[i] = { lang: cell.lang, source: newSource };
-    this.compiled[i] = compileReactiveCell(newSource, cell.lang, this.options);
+  async update(i: number, compiled: CompiledReactiveCell, context: ReactiveContext): Promise<unknown[]> {
+    this.cells[i] = compiled;
+    this.runners[i] = makeReactiveRunner(compiled);
     this.buildReverse();
     const affected = new Set<number>([i]);
     const stack = [i];
