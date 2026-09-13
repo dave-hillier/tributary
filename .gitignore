@@ -34,3 +34,7 @@ logs/
 .vscode/*
 !.vscode/extensions.json
 !.vscode/settings.json
+# Electron native-rebuild caches (grown inside the repo for sandboxed builds)
+.electron-cache/
+.home/
+.smoke-abi-marker

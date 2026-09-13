@@ -7,7 +7,13 @@ import type { Document } from '@tributary/api';
 const here = dirname(fileURLToPath(import.meta.url));
 const service = new WorkspaceService();
 
-function createWindow(): void {
+console.log('ELECTRON_BOOT', process.version, 'argv', JSON.stringify(process.argv));
+
+/** `--smoke`: launch the real window, verify renderer + IPC + native index,
+ * then exit 0 (or non-zero) — the Electron runtime check from findings #4. */
+const SMOKE = process.argv.includes('--smoke');
+
+function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
     width: 1200,
     height: 800,
@@ -23,6 +29,35 @@ function createWindow(): void {
     void win.loadURL(devUrl);
   } else {
     void win.loadFile(join(here, '../renderer-bundle/index.html'));
+  }
+  return win;
+}
+
+async function runSmoke(win: BrowserWindow): Promise<void> {
+  // Give the renderer time to boot, then probe it through the real IPC seam.
+  await new Promise((resolve) => setTimeout(resolve, 2500));
+  try {
+    const api = await win.webContents.executeJavaScript(
+      'typeof window.tributary === \'object\'',
+    );
+    const rendered = await win.webContents.executeJavaScript(
+      'document.querySelector(\'[data-doc]\') !== null',
+    );
+    const title = await win.webContents.executeJavaScript('document.title');
+    console.log('SMOKE_PROBE', JSON.stringify({ api, rendered, title }));
+    // The native index was built by service.openDemo() above — reaching here
+    // already proves better-sqlite3 loaded under Electron's Node runtime.
+    const docs = service.listDocuments().length;
+    if (!api || !rendered) {
+      throw new Error(`renderer not ready (api=${api} rendered=${rendered})`);
+    }
+    console.log(`SMOKE_OK title=${title} docs=${docs}`);
+    process.exitCode = 0;
+    app.quit();
+  } catch (err) {
+    console.error(`SMOKE_FAIL ${err instanceof Error ? err.message : String(err)}`);
+    process.exitCode = 1;
+    app.quit();
   }
 }
 
@@ -50,7 +85,9 @@ app.whenReady().then(async () => {
   ipcMain.handle('workspace:evaluateDocument', (_evt, docId: string, cells: { lang: string; source: string }[]) => service.evaluateDocument(docId, cells));
   ipcMain.handle('workspace:updateCell', (_evt, docId: string, cellIndex: number, source: string) => service.updateCell(docId, cellIndex, source));
 
-  createWindow();
+  const win = createWindow();
+
+  if (SMOKE) void runSmoke(win);
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
