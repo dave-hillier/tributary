@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain } from 'electron';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { writeFileSync } from 'node:fs';
 import { WorkspaceService } from './workspace-service.js';
 import type { Document } from '@tributary/api';
 
@@ -36,6 +37,11 @@ function createWindow(): BrowserWindow {
 async function runSmoke(win: BrowserWindow): Promise<void> {
   // Give the renderer time to boot, then probe it through the real IPC seam.
   await new Promise((resolve) => setTimeout(resolve, 2500));
+  const marker = process.env.SMOKE_MARKER;
+  const report = (line: string): void => {
+    console.log(line);
+    if (marker) writeFileSync(marker, line + '\n', 'utf8');
+  };
   try {
     const api = await win.webContents.executeJavaScript(
       'typeof window.tributary === \'object\'',
@@ -44,18 +50,17 @@ async function runSmoke(win: BrowserWindow): Promise<void> {
       'document.querySelector(\'[data-doc]\') !== null',
     );
     const title = await win.webContents.executeJavaScript('document.title');
-    console.log('SMOKE_PROBE', JSON.stringify({ api, rendered, title }));
     // The native index was built by service.openDemo() above — reaching here
     // already proves better-sqlite3 loaded under Electron's Node runtime.
     const docs = service.listDocuments().length;
     if (!api || !rendered) {
-      throw new Error(`renderer not ready (api=${api} rendered=${rendered})`);
+      throw new Error(`renderer not ready (api=${api} rendered=${rendered} title=${JSON.stringify(title)})`);
     }
-    console.log(`SMOKE_OK title=${title} docs=${docs}`);
+    report(`SMOKE_OK title=${title} docs=${docs} bundledNode=${process.version}`);
     process.exitCode = 0;
     app.quit();
   } catch (err) {
-    console.error(`SMOKE_FAIL ${err instanceof Error ? err.message : String(err)}`);
+    report(`SMOKE_FAIL ${err instanceof Error ? err.message : String(err)}`);
     process.exitCode = 1;
     app.quit();
   }

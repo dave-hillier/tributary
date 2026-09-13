@@ -38,3 +38,4 @@ logs/
 .electron-cache/
 .home/
 .smoke-abi-marker
+.smoke-window-marker

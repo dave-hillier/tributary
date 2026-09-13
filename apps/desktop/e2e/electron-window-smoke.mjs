@@ -10,25 +10,47 @@
 //   pnpm --filter app-desktop smoke:window
 
 import { execFileSync } from 'node:child_process';
-import { electronBinary, env, appRoot, rebuildForElectron, restoreForNode } from './electron-abi.mjs';
+import { readFileSync, existsSync } from 'node:fs';
+import { join } from 'node:path';
+import { electronBinary, env, appRoot, repoRoot, rebuildForElectron, restoreForNode } from './electron-abi.mjs';
+
+const marker = join(repoRoot, '.smoke-window-marker');
 
 try {
   rebuildForElectron();
   console.log('→ launching Electron window with --smoke');
-  const res = execFileSync(
-    electronBinary,
-    ['--no-sandbox', '--disable-gpu', '.', '--smoke'],
-    { cwd: appRoot, env, stdio: 'pipe', timeout: 120_000 },
-  );
-  const stdout = res.stdout ? String(res.stdout) : '';
-  const stderr = res.stderr ? String(res.stderr) : '';
-  console.log(`(electron exited with status ${res.status})`);
-  console.log((stderr + '\n' + stdout).split('\n').filter((l) => l.trim()).slice(-40).join('\n'));
+  console.log('  (expecting: ELECTRON_BOOT → window → SMOKE_OK)');
 
-  if (!stdout.includes('SMOKE_OK')) {
-    throw new Error('SMOKE_OK not observed in Electron output (window/IPC probe failed)');
+  try {
+    execFileSync(
+      electronBinary,
+      ['--no-sandbox', '--disable-gpu', '.', '--smoke'],
+      { cwd: appRoot, env: { ...env, SMOKE_MARKER: marker }, stdio: 'inherit', timeout: 120_000 },
+    );
+  } catch (err) {
+    // Non-zero exit / timeout: the marker (written by the app) carries the verdict.
+    const rough = err && typeof err === 'object' ? String(err.message ?? err) : String(err);
+    console.log('(electron exited abnormally: ' + rough.split('\n')[0] + ')');
+  }
+
+  const got = existsSync(marker) ? readFileSync(marker, 'utf8').trim() : '';
+  console.log('  marker:', got || '(absent)');
+  if (!got.startsWith('SMOKE_OK')) {
+    throw new Error([
+      'SMOKE_OK not observed — window/IPC/renderer probe failed.',
+      'Common causes: stale build artifacts (run `pnpm --filter app-desktop build`),',
+      'renderer assets not loading under file:// (vite base must be "./"),',
+      'or no display session available.',
+      got ? 'app said: ' + got : '',
+    ].filter(Boolean).join('\n'));
   }
   console.log('✓ Electron window smoke passed (window + renderer + IPC)');
 } finally {
   restoreForNode();
+  try {
+    const { rm } = await import('node:fs/promises');
+    await rm(marker, { force: true });
+  } catch {
+    // marker cleanup is best-effort
+  }
 }
