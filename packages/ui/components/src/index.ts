@@ -11,7 +11,7 @@
  * survives a conservative allow-list sanitizer, otherwise it is skipped.
  */
 
-import { createElement, Fragment, createContext, useContext, useEffect, useRef, useState } from 'react';
+import { createElement, Fragment, createContext, useContext, useEffect, useRef, useState, cloneElement } from 'react';
 import type { ChangeEvent, ReactElement, ReactNode } from 'react';
 import type {
   Document,
@@ -87,8 +87,10 @@ function sanitizeHtml(raw: string): string | null {
 // Concrete components
 // ---------------------------------------------------------------------------
 
+// Classless root: render the document's blocks directly (no wrapper class) so
+// the shell's `[data-doc] > :first-child` rules land on the first real block.
 const rootComponent: NodeComponent = ({ children }) =>
-  createElement('div', { className: 'tributary-document' }, children);
+  createElement(Fragment, null, children);
 
 const paragraphComponent: NodeComponent = ({ children }) =>
   createElement('p', null, children);
@@ -210,12 +212,22 @@ const transclusionComponent: NodeComponent = ({ node }) => {
 export interface CellResolver {
   resolve: (cell: Cell) => CellResult | undefined;
   update: (cell: Cell, source: string) => Promise<void>;
+  /** 0-based position of the cell in document order, when the host knows it. */
+  indexOf?: (cell: Cell) => number;
 }
 
 export const CellContext = createContext<CellResolver | null>(null);
 
 function deserializeNode(v: unknown): ReactNode {
-  if (Array.isArray(v)) return v.map(deserializeNode);
+  if (Array.isArray(v)) {
+    return v.map((item, i) => {
+      const rendered = deserializeNode(item);
+      // Key array elements (React reconciliation) when they are elements.
+      return rendered && typeof rendered === 'object' && 'type' in rendered
+        ? cloneElement(rendered as ReactElement, { key: i })
+        : rendered;
+    });
+  }
   if (v && typeof v === 'object' && 'kind' in v) {
     const r = v as CellResult;
     if (r.kind === 'element') return deserializeElement(r.type, r.props);
@@ -257,8 +269,10 @@ function CellView({ cell }: { cell: Cell }): ReactElement {
     };
   }, []);
 
+  const source = cell.value as string;
+
   if (!resolver) {
-    const source = cell.value as string;
+    // No evaluator wired: degrade to a source-only code fence.
     return createElement(
       'pre',
       { className: 'cell' },
@@ -267,6 +281,12 @@ function CellView({ cell }: { cell: Cell }): ReactElement {
   }
 
   const result = resolver.resolve(cell);
+  const index = resolver.indexOf ? resolver.indexOf(cell) : undefined;
+  const status: string =
+    !result ? 'pending' : result.kind === 'error' ? 'error' : 'ok';
+  const label =
+    (cell.lang ?? 'cell') + (index !== undefined ? ' · cell ' + (index + 1) : '');
+
   const onEdit = (v: string): void => {
     setDraft(v);
     if (timer.current) clearTimeout(timer.current);
@@ -276,26 +296,44 @@ function CellView({ cell }: { cell: Cell }): ReactElement {
   };
 
   return createElement(
-    'div',
-    { className: 'cell-block' },
-    result === undefined ? createElement('pre', { className: 'cell-loading' }, '…') : renderResult(result),
+    'figure',
+    { 'data-cell': '', 'data-lang': cell.lang, 'data-status': status },
     createElement(
-      'button',
-      {
-        className: 'cell-edit-toggle',
-        onClick: () => {
-          if (!editing) setDraft(cell.value as string);
-          setEditing(!editing);
-        },
-      },
-      editing ? 'Done' : 'Edit cell',
+      'figcaption',
+      null,
+      createElement('span', null, label),
+      createElement(
+        'span',
+        { 'data-cell-actions': '' },
+        createElement(
+          'span',
+          { 'data-status': status },
+          status === 'error' ? 'error' : status === 'pending' ? '…' : 'ok',
+        ),
+        createElement(
+          'button',
+          {
+            type: 'button',
+            className: 'cell-edit-toggle',
+            onClick: () => {
+              if (!editing) setDraft(source);
+              setEditing(!editing);
+            },
+          },
+          editing ? 'Done' : 'Edit cell',
+        ),
+      ),
+    ),
+    createElement(
+      'div',
+      { 'data-cell-body': '' },
+      result === undefined ? null : renderResult(result),
     ),
     editing
       ? createElement('textarea', {
           className: 'cell-editor',
-          value: draft ?? (cell.value as string),
+          value: draft ?? source,
           rows: 6,
-          style: { width: '100%', fontFamily: 'monospace' },
           onChange: (e: ChangeEvent<HTMLTextAreaElement>) => onEdit(e.target.value),
         })
       : null,

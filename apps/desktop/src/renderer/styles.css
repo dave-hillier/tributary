@@ -1,0 +1,769 @@
+/* ---------------------------------------------------------------------------
+ * Tributary shell stylesheet — classless by design.
+ *
+ * The whole visual contract lives in CSS variables plus bare semantic-element
+ * selectors. The markdown renderer emits no classes inside the document pane;
+ * `[data-doc]` below is the entire contract for rendered content. Classes are
+ * used only for structural things that have no semantic element (layout atoms),
+ * and for the few hooks the renderer already emits (`wiki-link`, cell parts).
+ * ------------------------------------------------------------------------- */
+
+/* ── Design tokens ─────────────────────────────────────────────────────── */
+
+:root {
+  --bg: #f7f5f1;
+  --panel: #fffefb;
+  --sunk: #f1eee8;
+  --ink: #17150f;
+  --ink-2: #4a463d;
+  --muted: #837d71;
+  --rule: #ddd8cd;
+  --rule-2: #c9c3b6;
+  --accent: #8a3b12;
+  --accent-soft: #f0e2d9;
+  --ok: #2f6b3f;
+  --ok-soft: rgba(47, 107, 63, 0.1);
+  --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+:root[data-theme="dark"] {
+  --bg: #121211;
+  --panel: #191817;
+  --sunk: #201f1d;
+  --ink: #eae6dd;
+  --ink-2: #bdb8ad;
+  --muted: #8b857a;
+  --rule: #2c2a26;
+  --rule-2: #3b3833;
+  --accent: #d4793f;
+  --accent-soft: #2a1d14;
+  --ok: #6ea877;
+}
+
+/* ── Base ──────────────────────────────────────────────────────────────── */
+
+* { box-sizing: border-box; }
+html, body, #root { margin: 0; padding: 0; height: 100%; }
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+a { color: var(--accent); text-decoration: none; border-bottom: 1px solid var(--accent); }
+a:hover { background: var(--accent-soft); }
+input, select, button, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+::selection { background: var(--accent-soft); }
+
+small { color: var(--muted); font-size: inherit; }
+
+[data-spacer] { flex: 1; }
+
+[data-priority="high"] { color: var(--accent); }
+[data-priority="medium"] { color: var(--muted); }
+
+/* Status words (green / rust / muted) driven by data attribute, not classes. */
+[data-status="ok"], [data-status="synced"] { color: var(--ok); }
+[data-status="error"], [data-status="unsaved"], [data-status="todo"], [data-status="doing"] { color: var(--accent); }
+[data-status="pending"], [data-status="done"], [data-status="idle"] { color: var(--muted); }
+
+/* ── Shell frame ───────────────────────────────────────────────────────── */
+/* #root is the 3-band grid: topbar / columns / statusbar. */
+
+#root {
+  display: grid;
+  grid-template-rows: 34px minmax(0, 1fr) 24px;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* Top bar */
+#root > header {
+  display: flex;
+  align-items: stretch;
+  border-bottom: 1px solid var(--rule);
+  background: var(--panel);
+}
+
+#root > header [data-brand] {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  border-right: 1px solid var(--rule);
+}
+
+#root > header [data-logo] {
+  width: 7px;
+  height: 7px;
+  background: var(--accent);
+}
+
+#root > header [data-brand] b {
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+#root > header nav {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 8px;
+  border-right: 1px solid var(--rule);
+}
+
+#root > header nav button {
+  height: 22px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  background: none;
+  color: var(--ink-2);
+}
+
+#root > header nav button:hover { background: var(--sunk); }
+#root > header nav button[aria-current="true"] { color: var(--ink); background: var(--accent-soft); }
+
+#root > header [data-git] {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px;
+  border-left: 1px solid var(--rule);
+  color: var(--muted);
+  margin-left: auto;
+}
+
+#root > header [data-git] [data-sep] { color: var(--rule-2); }
+
+#root > header [data-theme-toggle] {
+  width: 34px;
+  border: 0;
+  border-left: 1px solid var(--rule);
+  background: none;
+  color: var(--ink-2);
+}
+
+#root > header [data-theme-toggle]:hover { background: var(--sunk); }
+
+/* Columns: left sidebar / main / right inspector */
+#root > [data-cols] {
+  display: grid;
+  grid-template-columns: 228px minmax(0, 1fr) 264px;
+  min-height: 0;
+}
+
+/* ── Sidebar (left) ────────────────────────────────────────────────────── */
+
+#root > [data-cols] > aside[data-side="left"] {
+  border-right: 1px solid var(--rule);
+  background: var(--panel);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: auto;
+}
+
+#root > [data-cols] > aside[data-side="left"] [data-search] {
+  padding: 8px;
+  border-bottom: 1px solid var(--rule);
+}
+
+#root > [data-cols] > aside[data-side="left"] input {
+  width: 100%;
+  height: 24px;
+  padding: 0 8px;
+  background: var(--sunk);
+  border: 1px solid var(--rule);
+  outline: none;
+}
+
+#root > [data-cols] > aside[data-side="left"] input:focus { border-color: var(--accent); }
+
+#root > [data-cols] > aside[data-side="left"] [data-section-label] {
+  padding: 8px 12px 4px;
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+#root > [data-cols] > aside[data-side="left"] [data-results] {
+  padding: 0 8px 8px;
+  border-bottom: 1px solid var(--rule);
+  display: flex;
+  flex-direction: column;
+}
+
+#root > [data-cols] > aside[data-side="left"] [data-results] a {
+  display: block;
+  padding: 4px;
+  border: 0;
+  color: var(--ink);
+}
+
+#root > [data-cols] > aside[data-side="left"] [data-results] a:hover { background: var(--sunk); color: var(--ink); }
+#root > [data-cols] > aside[data-side="left"] [data-results] a small { display: block; font-size: 11px; }
+
+#root > [data-cols] > aside[data-side="left"] nav[data-tree] {
+  display: flex;
+  flex-direction: column;
+  padding: 0 0 8px;
+}
+
+#root > [data-cols] > aside[data-side="left"] [data-folder] {
+  padding: 10px 12px 2px;
+  color: var(--muted);
+}
+
+#root > [data-cols] > aside[data-side="left"] nav[data-tree] a {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 3px 12px 3px 22px;
+  border: 0;
+  border-left: 2px solid transparent;
+  color: var(--ink-2);
+}
+
+#root > [data-cols] > aside[data-side="left"] nav[data-tree] a[data-root="true"] {
+  padding-left: 12px;
+}
+
+#root > [data-cols] > aside[data-side="left"] nav[data-tree] a:hover { background: var(--sunk); }
+
+#root > [data-cols] > aside[data-side="left"] nav[data-tree] a[aria-current="true"] {
+  border-left: 2px solid var(--accent);
+  background: var(--accent-soft);
+  color: var(--ink);
+  font-weight: 500;
+}
+
+#root > [data-cols] > aside[data-side="left"] [data-new-item] {
+  margin-top: auto;
+  border-top: 1px solid var(--rule);
+  padding: 8px;
+  display: flex;
+  gap: 6px;
+}
+
+#root > [data-cols] > aside[data-side="left"] [data-new-item] input { flex: 1; min-width: 0; }
+
+#root > [data-cols] > aside[data-side="left"] [data-new-item] button {
+  height: 24px;
+  padding: 0 8px;
+  background: var(--panel);
+  border: 1px solid var(--rule-2);
+}
+
+#root > [data-cols] > aside[data-side="left"] [data-new-item] button:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* ── Main ──────────────────────────────────────────────────────────────── */
+
+#root > [data-cols] > main {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+
+/* Document / board toolbar */
+#root > [data-cols] > main [data-toolbar] {
+  min-height: 28px;
+  display: flex;
+  align-items: stretch;
+  border-bottom: 1px solid var(--rule);
+  background: var(--panel);
+}
+
+#root > [data-cols] > main [data-toolbar] [data-doc-title] {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+#root > [data-cols] > main [data-toolbar] [data-doc-title] b,
+#root > [data-cols] > main [data-toolbar] [data-doc-title] small {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#root > [data-cols] > main [data-toolbar] [data-panes] {
+  display: flex;
+  align-items: stretch;
+  flex: 0 0 auto;
+}
+
+#root > [data-cols] > main [data-toolbar] [data-panes] button {
+  padding: 0 10px;
+  border: 0;
+  border-left: 1px solid var(--rule);
+  background: none;
+  color: var(--ink-2);
+}
+
+#root > [data-cols] > main [data-toolbar] [data-panes] button:hover { background: var(--sunk); }
+#root > [data-cols] > main [data-toolbar] [data-panes] button[aria-current="true"] { color: var(--ink); background: var(--accent-soft); }
+
+/* Document scroll pane */
+#root > [data-cols] > main [data-scroll] {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 22px 28px;
+}
+
+/* Board toolbar (filters) */
+#root > [data-cols] > main [data-board-toolbar] {
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+  padding: 4px 12px;
+  border-bottom: 1px solid var(--rule);
+  background: var(--panel);
+  color: var(--muted);
+}
+
+#root > [data-cols] > main [data-board-toolbar] [data-filters] {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow-x: auto;
+}
+
+#root > [data-cols] > main select,
+#root > [data-cols] > main [data-board-toolbar] select {
+  height: 20px;
+  background: var(--sunk);
+  border: 1px solid var(--rule);
+  padding: 0 4px;
+}
+
+/* Board columns */
+#root > [data-cols] > main [data-board] {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  background: var(--rule);
+}
+
+#root > [data-cols] > main [data-board] section {
+  background: var(--bg);
+  min-width: 0;
+}
+
+#root > [data-cols] > main [data-board] section > h3 {
+  margin: 0;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--rule);
+  background: var(--panel);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+#root > [data-cols] > main [data-board] section > div[data-column] {
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+#root > [data-cols] > main [data-board] article {
+  background: var(--panel);
+  border: 1px solid var(--rule);
+  padding: 8px 10px;
+  cursor: pointer;
+}
+
+#root > [data-cols] > main [data-board] article:hover { border-color: var(--rule-2); }
+
+#root > [data-cols] > main [data-board] article [data-card-head] {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+#root > [data-cols] > main [data-board] article [data-card-path] {
+  color: var(--muted);
+  font-size: 11px;
+  margin-top: 4px;
+}
+
+#root > [data-cols] > main [data-board] article [data-card-foot] {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--rule);
+}
+
+#root > [data-cols] > main [data-board] [data-empty] {
+  border: 1px dashed var(--rule);
+  padding: 10px;
+  text-align: center;
+  color: var(--muted);
+}
+
+/* Source editor strip */
+#root > [data-cols] > main [data-editor] {
+  border-top: 1px solid var(--rule);
+  background: var(--panel);
+  display: flex;
+  flex-direction: column;
+}
+
+#root > [data-cols] > main [data-editor] [data-editor-head] {
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 10px 0 12px;
+  border-bottom: 1px solid var(--rule);
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+#root > [data-cols] > main [data-editor] [data-editor-actions] {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+#root > [data-cols] > main [data-editor] [data-editor-actions] button {
+  height: 18px;
+  padding: 0 8px;
+  background: var(--sunk);
+  border: 1px solid var(--rule-2);
+}
+
+#root > [data-cols] > main [data-editor] [data-editor-actions] button:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+#root > [data-cols] > main [data-editor] [data-editor-body] {
+  display: flex;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+#root > [data-cols] > main [data-editor] .cm-editor { flex: 1; font-family: var(--mono); font-size: 12px; }
+#root > [data-cols] > main [data-editor] .cm-editor.cm-focused { outline: none; }
+#root > [data-cols] > main [data-editor] .cm-scroller { font-family: var(--mono); line-height: 1.6; }
+#root > [data-cols] > main [data-editor] .cm-gutters { background: var(--panel); border-right: 1px solid var(--rule); color: var(--rule-2); }
+#root > [data-cols] > main [data-editor] .cm-content { color: var(--ink-2); background: var(--panel); }
+
+/* Diff pane */
+#root > [data-cols] > main [data-diff-head] {
+  height: 28px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--rule);
+  background: var(--panel);
+}
+
+#root > [data-cols] > main [data-diff] {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  background: var(--panel);
+  font-size: 12px;
+  line-height: 1.6;
+  margin: 0;
+  padding: 12px;
+  white-space: pre-wrap;
+  color: var(--ink-2);
+}
+
+/* ── Inspector (right) ─────────────────────────────────────────────────── */
+
+#root > [data-cols] > aside[data-side="right"] {
+  border-left: 1px solid var(--rule);
+  background: var(--panel);
+  overflow: auto;
+  min-height: 0;
+}
+
+#root > [data-cols] > aside[data-side="right"] section > h4 {
+  margin: 0;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--rule);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+#root > [data-cols] > aside[data-side="right"] [data-link-list] {
+  padding: 6px 0;
+  border-bottom: 1px solid var(--rule);
+  display: flex;
+  flex-direction: column;
+}
+
+#root > [data-cols] > aside[data-side="right"] [data-link-list] a {
+  padding: 3px 12px;
+  border: 0;
+  color: var(--ink-2);
+}
+
+#root > [data-cols] > aside[data-side="right"] [data-link-list] a:hover { background: var(--sunk); }
+
+#root > [data-cols] > aside[data-side="right"] ol[data-history] {
+  margin: 0;
+  padding: 6px 0;
+  list-style: none;
+  border-bottom: 1px solid var(--rule);
+}
+
+#root > [data-cols] > aside[data-side="right"] ol[data-history] li {
+  padding: 4px 12px;
+  border-left: 2px solid transparent;
+}
+
+#root > [data-cols] > aside[data-side="right"] ol[data-history] li:first-child { border-left: 2px solid var(--accent); }
+
+#root > [data-cols] > aside[data-side="right"] ol[data-history] [data-history-row] {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+#root > [data-cols] > aside[data-side="right"] [data-remote] {
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+#root > [data-cols] > aside[data-side="right"] [data-remote] [data-kv] {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+#root > [data-cols] > aside[data-side="right"] [data-remote] [data-actions] {
+  display: flex;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+#root > [data-cols] > aside[data-side="right"] [data-remote] button {
+  flex: 1;
+  height: 22px;
+  background: var(--sunk);
+  border: 1px solid var(--rule-2);
+}
+
+#root > [data-cols] > aside[data-side="right"] [data-remote] button:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+#root > [data-cols] > aside[data-side="right"] [data-remote] input {
+  flex: 1;
+  min-width: 0;
+  height: 22px;
+  padding: 0 8px;
+  background: var(--sunk);
+  border: 1px solid var(--rule);
+  outline: none;
+}
+
+#root > [data-cols] > aside[data-side="right"] [data-remote] input:focus { border-color: var(--accent); }
+
+#root > [data-cols] > aside[data-side="right"] dl[data-frontmatter] {
+  margin: 0;
+  padding: 8px 12px;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 3px 10px;
+}
+
+#root > [data-cols] > aside[data-side="right"] dl[data-frontmatter] dt { color: var(--muted); }
+#root > [data-cols] > aside[data-side="right"] dl[data-frontmatter] dd { margin: 0; }
+
+/* ── Status bar ────────────────────────────────────────────────────────── */
+
+#root > footer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px;
+  border-top: 1px solid var(--rule);
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 11px;
+}
+
+#root > footer [data-sep] { color: var(--rule-2); }
+#root > footer [data-spacer] { flex: 1; }
+
+/* ── Classless document stylesheet ───────────────────────────────────────
+   Everything below targets bare semantic elements inside the document pane.
+   The markdown renderer emits no classes; this is the entire visual contract
+   for rendered content. */
+[data-doc] { max-width: 78ch; }
+[data-doc] > :first-child { margin-top: 0; }
+[data-doc] h1, [data-doc] h2, [data-doc] h3, [data-doc] h4 {
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+  margin: 1.8em 0 0.6em;
+}
+[data-doc] h1 { font-size: 20px; }
+[data-doc] h2 { font-size: 16px; }
+[data-doc] h3 { font-size: 13.5px; }
+[data-doc] h4 { font-size: 12.5px; color: var(--ink-2); }
+[data-doc] h1::before, [data-doc] h2::before, [data-doc] h3::before {
+  content: "#";
+  color: var(--rule-2);
+  margin-right: 0.5em;
+  font-weight: 400;
+}
+[data-doc] p { margin: 0 0 0.9em; max-width: 72ch; }
+[data-doc] ul, [data-doc] ol { margin: 0 0 0.9em; padding-left: 1.4em; }
+[data-doc] li { margin: 0.15em 0; }
+[data-doc] ul { list-style: none; }
+[data-doc] ul > li::before {
+  content: "—";
+  color: var(--rule-2);
+  display: inline-block;
+  width: 1.4em;
+  margin-left: -1.4em;
+}
+[data-doc] strong { font-weight: 600; }
+[data-doc] em { font-style: italic; color: var(--ink-2); }
+[data-doc] del { color: var(--muted); }
+[data-doc] hr { border: 0; border-top: 1px solid var(--rule); margin: 1.6em 0; }
+[data-doc] blockquote {
+  margin: 0 0 0.9em;
+  padding-left: 1em;
+  border-left: 2px solid var(--rule-2);
+  color: var(--ink-2);
+}
+[data-doc] code { background: var(--sunk); padding: 0 0.3em; border: 1px solid var(--rule); }
+[data-doc] pre {
+  background: var(--sunk);
+  border: 1px solid var(--rule);
+  padding: 10px 12px;
+  overflow: auto;
+  margin: 0 0 0.9em;
+  font-size: 12px;
+  line-height: 1.55;
+}
+[data-doc] pre code { background: none; border: 0; padding: 0; }
+[data-doc] table { border-collapse: collapse; margin: 0 0 0.9em; font-size: 12px; }
+[data-doc] td, [data-doc] th { border: 1px solid var(--rule); padding: 3px 8px; text-align: left; }
+[data-doc] img { max-width: 100%; border: 1px solid var(--rule); }
+
+/* dialect nodes: wiki links, transclusions */
+[data-doc] a[href][class~="wiki-link"] { border-bottom-style: dashed; }
+[data-doc] [data-transclusion] {
+  border: 1px solid var(--rule);
+  border-left: 2px solid var(--accent);
+  background: var(--panel);
+  padding: 10px 12px;
+  margin: 0 0 0.9em;
+}
+[data-doc] [data-transclusion]::before {
+  content: "embed";
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+
+/* executable cells — semantic <figure>/<figcaption> */
+[data-doc] figure[data-cell] {
+  margin: 0 0 0.9em;
+  border: 1px solid var(--rule);
+  background: var(--panel);
+}
+[data-doc] figure[data-cell] figcaption {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 24px;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--rule);
+  background: var(--sunk);
+  color: var(--muted);
+  font-size: 11px;
+}
+[data-doc] figure[data-cell] figcaption [data-cell-actions] {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+[data-doc] figure[data-cell] figcaption button {
+  border: 0;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0;
+  font-size: 11px;
+}
+[data-doc] figure[data-cell] figcaption button:hover { color: var(--accent); }
+[data-doc] figure[data-cell] [data-cell-body] { padding: 10px 12px; }
+[data-doc] figure[data-cell] [data-cell-body] pre {
+  margin: 0;
+  border: 0;
+  background: none;
+  padding: 0;
+}
+[data-doc] figure[data-cell] [data-cell-body] .cell-error {
+  color: var(--accent);
+  border-left: 2px solid var(--accent);
+  padding-left: 10px;
+}
+[data-doc] figure[data-cell] textarea.cell-editor {
+  display: block;
+  width: calc(100% - 24px);
+  margin: 0 12px 12px;
+  padding: 8px;
+  background: var(--sunk);
+  border: 1px solid var(--rule);
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.5;
+}

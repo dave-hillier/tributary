@@ -70,7 +70,7 @@ await context.addInitScript((keys) => {
 
 const page = await context.newPage();
 await page.goto(`http://localhost:${port}/`);
-await page.waitForSelector('h2', { timeout: 10000 });
+await page.waitForSelector('[data-doc] h1', { timeout: 10000 });
 await page.waitForTimeout(600);
 
 let failed = false;
@@ -84,69 +84,77 @@ async function shot(name) {
   console.log('captured ' + name + '.png');
 }
 
-// 01 board baseline
-await shot('01-board');
-await verify('Ship the demo');
-try {
-  await page.locator('strong', { hasText: 'Tributary renders TSX cells here' }).first().waitFor({ timeout: 5000 });
-  console.log('verify ok: tsx cell rendered as <strong>');
-} catch {
-  console.error('VERIFY FAILED: tsx cell <strong> output');
-  failed = true;
-}
+// 01 document (rendered) baseline
+await verify('tributary');
+await verify('Tributary Demo');
+await shot('01-document');
+const cells = await page.locator('figure[data-cell]').count();
+if (cells === 4) console.log('verify ok: 4 cell figures');
+else { console.error('VERIFY FAILED: expected 4 cells, got ' + cells); failed = true; }
+await page.locator('strong', { hasText: 'Tributary renders TSX cells here' }).first().waitFor({ timeout: 5000 });
+console.log('verify ok: tsx cell rendered as <strong>');
 
-// 02 backlinks: load a work item and show what links to it
-await page.getByRole('button', { name: 'Ship the demo' }).first().click();
+// 02 source pane (editor strip + checkpoint button)
+await page.getByRole('button', { name: 'source' }).click();
+await page.waitForTimeout(300);
+await verify('source · index.md');
+await verify('checkpoint ⌘S');
+await shot('02-source');
+
+// 03 diff pane
+await page.getByRole('button', { name: 'diff' }).click();
+await page.waitForTimeout(300);
+await verify('working tree vs');
+await shot('03-diff');
+
+// 04 board + status change
+await page.getByRole('button', { name: 'board', exact: true }).click();
 await page.waitForTimeout(400);
-await verify('Linked from');
-await verify('Diff (last change)');
-await shot('02-backlinks');
-
-// 03 rename the same item; board still shows it by id
-await page.getByPlaceholder('Rename to path (e.g. items/foo.md)').fill('items/ship-demo.md');
-await page.getByRole('button', { name: 'Rename' }).click();
-await page.waitForTimeout(600);
-await shot('03-renamed');
-await verify('Ship the demo');
-
-// 04 board filters: status = done
-await page.getByLabel('status filter').selectOption('done');
+await verify('work items · 2');
+await shot('04-board');
+const shipCard = page.locator('article', { hasText: 'Ship the demo' }).first();
+await shipCard.locator('select').selectOption('done');
 await page.waitForTimeout(400);
-await shot('04-filtered');
-await verify('Write tests');
+await shot('05-board-status-changed');
 
-// 05 autosave: edit the open document and let it autosave
-await page.getByRole('button', { name: 'Ship the demo' }).first().click();
+// 05 search
+await page.locator('[data-search] input').fill('hello');
+await page.locator('[data-search] input').press('Enter');
 await page.waitForTimeout(400);
-const editor = page.locator('.cm-content');
-await editor.click();
-await page.keyboard.press('ControlOrMeta+End');
-await page.keyboard.insertText('\n\nAutosaved edit.');
-await page.waitForTimeout(1600);
-await verify('Autosaved');
-await shot('05-autosave');
+await verify('results · 1');
+await shot('06-search');
 
-// 06 sync (fetch + push against the local remote)
-await page.getByRole('button', { name: 'Sync' }).click();
-await page.waitForTimeout(800);
-await verify('synced');
-await shot('06-synced');
-
-// 07 per-cell editing: navigate to the home doc (has cells), then edit a cell
-await page.getByRole('button', { name: 'Tributary Demo' }).first().click();
-await page.waitForTimeout(600);
-const editButtons = await page.getByRole('button', { name: 'Edit cell' }).count();
-if (editButtons > 0) console.log('verify ok: Edit cell buttons (' + editButtons + ')');
-else { console.error('VERIFY FAILED: no Edit cell buttons'); failed = true; }
-await page.getByRole('button', { name: 'Edit cell' }).first().click();
+// 06 cell editing (navigate to home, edit first cell, dependant re-evaluates)
+await page.getByRole('button', { name: 'document', exact: true }).click();
 await page.waitForTimeout(200);
-await page.locator('textarea.cell-editor').first().fill('const greeting = "Updated greeting"');
+await page.getByRole('button', { name: 'rendered', exact: true }).click();
+await page.waitForTimeout(300);
+const editButtons = await page.locator('figure[data-cell] button', { hasText: 'Edit cell' }).count();
+if (editButtons === 4) console.log('verify ok: 4 Edit cell buttons');
+else { console.error('VERIFY FAILED: expected 4 Edit cell buttons, got ' + editButtons); failed = true; }
+await page.locator('figure[data-cell]').first().locator('button', { hasText: 'Edit cell' }).click();
+await page.waitForTimeout(200);
+await page.locator('figure[data-cell] textarea').first().fill('const greeting = "Updated greeting"');
 await page.waitForTimeout(900);
 await verify('Updated greeting');
 await shot('07-cell-edit');
 const persisted = service.getDocument('index').source;
 if (persisted.includes('Updated greeting')) console.log('verify ok: cell edit persisted to .md');
 else { console.error('VERIFY FAILED: cell edit not persisted'); failed = true; }
+
+// 07 sync (fetch + push against the local remote)
+await page.locator('[data-remote] button', { hasText: 'sync' }).click();
+await page.waitForTimeout(800);
+await verify('synced');
+await shot('08-synced');
+
+// 08 dark theme
+await page.locator('[data-theme-toggle]').click();
+await page.waitForTimeout(200);
+const theme = await page.evaluate(() => document.documentElement.dataset.theme);
+if (theme === 'dark') console.log('verify ok: dark theme');
+else { console.error('VERIFY FAILED: expected dark theme, got ' + theme); failed = true; }
+await shot('09-dark');
 
 await browser.close();
 server.close();
