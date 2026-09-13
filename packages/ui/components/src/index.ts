@@ -31,6 +31,8 @@ import type {
 import type { CellResult } from '@tributary/notebook';
 import { createDocumentRenderer } from '@tributary/render';
 import type { ComponentRegistry, NodeComponent, RenderContext } from '@tributary/render';
+import { InlineEditor } from './prosemirror/InlineEditor.js';
+import { supportsInlineEditing } from './prosemirror/convert.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -264,6 +266,64 @@ function EditableBlock(props: {
   });
 }
 
+/**
+ * In-place ProseMirror editing for a leaf text block (paragraph/heading/cell).
+ * Clicking swaps the rendered block for a ProseMirror editor editing its inline
+ * content; commits on Enter / Cmd+Enter / blur, cancels on Escape.
+ */
+function ProseMirrorEditableBlock(props: {
+  node: Node;
+  ctx: RenderContext;
+  tag: string;
+  children: ReactNode;
+}): ReactElement {
+  const resolver = useContext(EditContext);
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const source = resolver ? resolver.sourceOf(props.ctx.document, props.node) : null;
+
+  if (!resolver || source === null) {
+    return createElement(props.tag, null, props.children);
+  }
+
+  if (!editing) {
+    return createElement(
+      props.tag,
+      {
+        className: 'tributary-editable',
+        'data-editable': props.node.type,
+        title: 'Click to edit',
+        onClick: (e: MouseEvent<HTMLElement>) => {
+          if ((e.target as HTMLElement).closest('a')) return;
+          e.stopPropagation();
+          setEditing(true);
+        },
+      },
+      props.children,
+    );
+  }
+
+  const commit = async (markdown: string): Promise<void> => {
+    if (saving) return;
+    setEditing(false);
+    if (markdown !== source) {
+      setSaving(true);
+      try {
+        await resolver.update(props.ctx.document, props.node, markdown);
+      } finally {
+        setSaving(false);
+      }
+    }
+  };
+
+  return createElement(InlineEditor, {
+    node: props.node,
+    onCommit: (m: string) => void commit(m),
+    onCancel: () => setEditing(false),
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Concrete components
 // ---------------------------------------------------------------------------
@@ -274,10 +334,14 @@ const rootComponent: NodeComponent = ({ children }) =>
   createElement(Fragment, null, children);
 
 const paragraphComponent: NodeComponent = ({ node, children, ctx }) =>
-  createElement(EditableBlock, { node, ctx, tag: 'p', children });
+  supportsInlineEditing(node)
+    ? createElement(ProseMirrorEditableBlock, { node, ctx, tag: 'p', children })
+    : createElement(EditableBlock, { node, ctx, tag: 'p', children });
 
 const headingComponent: NodeComponent = ({ node, children, ctx }) =>
-  createElement(EditableBlock, { node, ctx, tag: 'h' + (node as Heading).depth, children });
+  supportsInlineEditing(node)
+    ? createElement(ProseMirrorEditableBlock, { node, ctx, tag: 'h' + (node as Heading).depth, children })
+    : createElement(EditableBlock, { node, ctx, tag: 'h' + (node as Heading).depth, children });
 
 const textComponent: NodeComponent = ({ node }) =>
   text((node as Text).value);
@@ -333,11 +397,11 @@ const listComponent: NodeComponent = ({ node, children }) => {
   return createElement('ul', null, children);
 };
 
-const listItemComponent: NodeComponent = ({ node, children, ctx }) =>
-  createElement(EditableBlock, { node, ctx, tag: 'li', children });
+const listItemComponent: NodeComponent = ({ children }) =>
+  createElement('li', null, children);
 
-const blockquoteComponent: NodeComponent = ({ node, children, ctx }) =>
-  createElement(EditableBlock, { node, ctx, tag: 'blockquote', children });
+const blockquoteComponent: NodeComponent = ({ children }) =>
+  createElement('blockquote', null, children);
 
 const htmlComponent: NodeComponent = ({ node }) => {
   const safe = sanitizeHtml((node as Html).value);
@@ -355,7 +419,9 @@ const tableRowComponent: NodeComponent = ({ children }) =>
   createElement('tr', null, children);
 
 const tableCellComponent: NodeComponent = ({ node, children, ctx }) =>
-  createElement(EditableBlock, { node, ctx, tag: 'td', children });
+  supportsInlineEditing(node)
+    ? createElement(ProseMirrorEditableBlock, { node, ctx, tag: 'td', children })
+    : createElement(EditableBlock, { node, ctx, tag: 'td', children });
 
 // Frontmatter (YAML) is carried on Document.frontmatter and not re-rendered in
 // the body; reference definitions are invisible metadata.

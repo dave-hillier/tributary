@@ -25,7 +25,16 @@
     "@tributary/render": "workspace:*",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "@tributary/notebook": "workspace:*"
+    "@tributary/notebook": "workspace:*",
+    "prosemirror-model": "^1.25.11",
+    "prosemirror-state": "^1.4.4",
+    "prosemirror-view": "^1.42.3",
+    "prosemirror-schema-basic": "^1.2.4",
+    "prosemirror-markdown": "^1.13.7",
+    "prosemirror-commands": "^1.7.2",
+    "prosemirror-history": "^1.5.0",
+    "prosemirror-keymap": "^1.2.3",
+    "prosemirror-inputrules": "^1.5.1"
   },
   "devDependencies": {
     "typescript": "^5.6.3",
