@@ -19,6 +19,7 @@ tributary/
 │   └── web/                  # (later) hosted/web client — not v1
 └── packages/
     ├── core/
+    │   ├── ontology/         # work-item ontology: refs, vocabularies, resolution, validation
     │   ├── markdown/         # parser: AST, frontmatter, wiki links, fences, round-trip
     │   ├── render/           # AST -> React component registry
     │   ├── api/              # typed document/workspace model & shared types
@@ -40,10 +41,11 @@ trees. `apps/desktop` is created at Stage 0.4 and does not exist yet.
 | Package            | Responsibility (arch ref)                                      | Depends on                       | Electron? |
 |--------------------|----------------------------------------------------------------|----------------------------------|-----------|
 | `@tributary/api`   | Typed document/workspace model, capability contracts (§5.3, §6) | —                                | never     |
+| `@tributary/ontology` | Work-item ontology (ADR-005): typed refs, vocabularies, normalisation, name resolution, validation | `api`      | never     |
 | `@tributary/markdown` | Parser: frontmatter, wiki links, transclusion, typed fences, round-trip (§4) | `api`                | never     |
 | `@tributary/render`| AST → React registry (safe extension point) (§5.1, §11)        | `api`, `markdown`               | never     |
-| `@tributary/workspace`| Workspace service: one repo per workspace, Git adapter, checkpoints (§5.2) | `api`                  | never     |
-| `@tributary/index` | SQLite + FTS5 derived projections (§5.3)                        | `api`                            | never     |
+| `@tributary/workspace`| Workspace service: one repo per workspace, Git adapter, checkpoints, diagnostics (§5.2, §5.4) | `api`, `ontology` | never     |
+| `@tributary/index` | SQLite + FTS5 derived projections, typed relations (§5.3)        | `api`, `ontology`                | never     |
 | `@tributary/notebook`| NotebookHost, cell compiler (esbuild), dependency graph, invalidation (§6, ADR-004) | `api`, `markdown` | never |
 | `@tributary/jobs`  | Revision-pinned jobs in isolated worktrees/workers (§5.5, §7)   | `workspace`, `index`, `markdown` | never     |
 | `@tributary/components` | React block registry, work-item views, document/cell rendering | `render`, `notebook` | no (React only) |
@@ -53,7 +55,12 @@ trees. `apps/desktop` is created at Stage 0.4 and does not exist yet.
 
 - **No core package imports Electron.** `app-desktop` is the only package that
   may. CI fails a build if a non-shell package pulls in `electron`.
-- **Dependency direction is acyclic:** `api` → `markdown` → `render`;
+- **The ontology is the model's owner.** `@tributary/ontology` turns raw
+  frontmatter into the canonical typed model (ADR-005). Anything reading
+  `frontmatter.status`, `assignee` or `priority` directly is a bug: consumers go
+  through the ontology so deprecated spellings are normalised in exactly one
+  place.
+- **Dependency direction is acyclic:** `api` → `ontology`/`markdown` → `render`;
   `workspace`/`index`/`notebook`/`jobs` sit beside each other and all depend on
   `api` (and, for parser work, `markdown`). The renderer depends on the service
   only through the typed `api` boundary (IPC in the shell).

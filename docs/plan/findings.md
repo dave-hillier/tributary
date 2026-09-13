@@ -4,8 +4,8 @@
   Stage 2/3 work and hardening committed up to `26e0f9c` (09-13).
 - **Status:** Stages 0/1/2/3 committed and green. Implemented:
   findings 1, 2, 3, 5, 6, 7, 10 and the HTML-sanitisation work. Remaining open:
-  findings 8 (test breadth), 11 (cell module resolution), 15 (work-item
-  ontology) and the native Electron *window* launch (finding 4 —
+  findings 8 (test breadth), 11 (cell module resolution) and the native Electron
+  *window* launch (finding 4 —
   ABI now verified under Electron's bundled Node 20; the window probe needs a
   desktop session, `pnpm --filter app-desktop smoke:window`).
 
@@ -233,7 +233,7 @@ and no test either way.
 **Disposition:** skip the IPC call and the host when a document has no cells;
 add a test asserting it.
 
-### 15. High — The work-item ontology is flatter than the architecture's
+### 15. High — The work-item ontology is flatter than the architecture's *(resolved — ADR-005)*
 
 Architecture §3.3's own example document and the §4.2 frontmatter table describe
 a richer model than the code implements. Everything typed has collapsed into
@@ -270,14 +270,30 @@ filters"), so this is not a regression — the plan specified the flattened shap
 in §1.4 and the code matched it. The gap is between the plan and the
 architecture it derives from.
 
-**Disposition:** settle the ontology as an ADR before building further on it,
-covering: the `type` vs `kind` discriminator (pick one, migrate the fixtures);
-`assignees` as a list of typed refs; `project` as a document reference resolved
-through the index; numeric priority; `labels`/`tags`; `aliases` and `template`
-moved into `DocumentFrontmatter` with alias resolution in the core resolver, not
-the shell; `due` carried into the projection; and a typed `relation` column on
-`links` so entity references are distinguishable from prose mentions. A
-tolerant-but-known vocabulary with validation that reports rather than rejects.
+**Resolved:** settled as **ADR-005** and implemented. `type` is canonical with
+`kind` read as a deprecated alias; `assignees` is a list of typed `entity:id`
+refs (singular `assignee` folded in); `project` is a document reference resolved
+through the index, so grouping survives a rename; `priority` is numeric 0–4 with
+the legacy names mapped on read; `labels`, `tags`, `aliases`, `template` and
+`due` are first-class, and `due` reaches the projection; `links` carries a
+`relation` column (`link`/`transclusion`/`project`/`parent`/`blocks`), so a
+typed edge is distinguishable from a prose mention; resolution (id → path →
+alias → title) is one shared function used by both the index and the shell.
+
+**Implemented:** a new pure package **`@tributary/ontology`** owns normalisation,
+vocabularies, reference parsing, resolution and validation — the model was flat
+because nothing owned it. Validation reports and never rejects (44 ontology
+tests, including that an unknown key, an unknown status and every deprecated
+spelling all still open, project and save). The demo fixture now carries a real
+project document plus one deliberately legacy work item, so the tolerance path
+is exercised by the suite rather than asserted. `createWorkItem` writes only
+canonical spellings, so new documents need no migration, and the board's columns,
+facets and ordering come from the vocabulary (priority sorts by urgency instead
+of alphabetically).
+
+**Remaining:** the `work/issues` directory convention is unused (paths are
+non-semantic, so this is cosmetic), and `template` is declared but no template
+selection consumes it yet.
 
 ## Decisions
 

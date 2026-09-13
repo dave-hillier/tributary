@@ -1,4 +1,9 @@
-import type { Document, DocumentId, WorkItem } from '@tributary/api';
+import type { Document, DocumentId, RelationKind, WorkItem } from '@tributary/api';
+import {
+  frontmatterRelations,
+  projectWorkItems,
+  resolveDocument,
+} from '@tributary/ontology';
 
 // Section slicing for transclusion lives in the (pure) markdown package so
 // shells and renderers can use it without pulling native deps; re-exported
@@ -14,10 +19,19 @@ export interface WorkspaceIndex {
   links: Map<DocumentId, DocumentId[]>;
   /** id -> ids of documents that link to it. */
   backlinks: Map<DocumentId, DocumentId[]>;
-  /** Typed work-item projection from frontmatter (arch §3.3). */
+  /** Typed work-item projection from frontmatter (arch §3.3, ADR-005). */
   workItems: WorkItem[];
-  /** Resolve a wiki-link/transclusion target to a document. */
+  /** Typed edges: prose references and frontmatter relations (ADR-005 §8). */
+  relations: Relation[];
+  /** Resolve a target by id, path, alias or title (ADR-005 §7). */
   resolve(target: string): Document | undefined;
+}
+
+/** A resolved typed edge between two documents. */
+export interface Relation {
+  from: DocumentId;
+  to: DocumentId;
+  kind: RelationKind;
 }
 
 /** Collect raw wiki-link/transclusion targets from a document's AST. */
@@ -42,13 +56,11 @@ export function buildIndex(documents: Document[]): WorkspaceIndex {
     byPath.set(d.path, d);
   }
 
-  const resolve = (target: string): Document | undefined => {
-    if (byId.has(target)) return byId.get(target);
-    if (byPath.has(target)) return byPath.get(target);
-    if (byPath.has(target + '.md')) return byPath.get(target + '.md');
-    return undefined;
-  };
+  // One resolution rule for the whole system (ADR-005 §7): id, path, alias,
+  // title. The shell uses the same function, so they cannot disagree.
+  const resolve = (target: string): Document | undefined => resolveDocument(documents, target);
 
+  const relations: Relation[] = [];
   const links = new Map<DocumentId, DocumentId[]>();
   for (const d of documents) {
     const resolved = collectTargets(d)
@@ -56,6 +68,13 @@ export function buildIndex(documents: Document[]): WorkspaceIndex {
       .filter((x): x is Document => x !== undefined)
       .map((x) => x.id);
     links.set(d.id, [...new Set(resolved)]);
+    for (const to of new Set(resolved)) relations.push({ from: d.id, to, kind: 'link' });
+    // Frontmatter edges (project/parent/blocks) are typed relations, not prose
+    // mentions, so a board grouping survives a rename (ADR-005 §4, §8).
+    for (const rel of frontmatterRelations(d)) {
+      const target = resolve(rel.target);
+      if (target) relations.push({ from: d.id, to: target.id, kind: rel.kind });
+    }
   }
 
   const backlinks = new Map<DocumentId, DocumentId[]>();
@@ -67,19 +86,9 @@ export function buildIndex(documents: Document[]): WorkspaceIndex {
     }
   }
 
-  const workItems: WorkItem[] = documents
-    .filter((d) => d.frontmatter.kind === 'work-item')
-    .map((d) => ({
-      id: d.id,
-      path: d.path,
-      title: (d.frontmatter.title as string | undefined) ?? d.id,
-      status: (d.frontmatter.status as string | undefined) ?? 'todo',
-      assignee: d.frontmatter.assignee as string | undefined,
-      priority: d.frontmatter.priority as string | undefined,
-      project: d.frontmatter.project as string | undefined,
-    }));
+  const workItems = projectWorkItems(documents);
 
-  return { documents, byId, byPath, links, backlinks, workItems, resolve };
+  return { documents, byId, byPath, links, backlinks, workItems, relations, resolve };
 }
 
 export { SqliteIndex } from './sqlite.js';

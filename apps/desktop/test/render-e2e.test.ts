@@ -55,16 +55,41 @@ describe('Stage 1 slice: the Git round-trip', () => {
 
       // Work-item board: projection, frontmatter update, and create with stable id.
       expect(service.listWorkItems().length).toBeGreaterThanOrEqual(2);
-      expect(service.listWorkItems().find((w) => w.id === 'task-1')?.status).toBe('todo');
+      const task1 = service.listWorkItems().find((w) => w.id === 'task-1')!;
+      expect(task1.status).toBe('doing');
+      // The full ontology reaches the board (ADR-005): typed assignees, numeric
+      // priority, labels, due date and a project resolved to a document id.
+      expect(task1.assignees.map((a) => a.id)).toEqual(['alice', 'carol']);
+      expect(task1.priority).toBe(1);
+      expect(task1.labels.sort()).toEqual(['demo', 'release']);
+      expect(task1.due).toBe('2026-09-30');
+      expect(task1.projectId).toBe('project-demo');
+      expect(service.itemsInProject('project-demo').map((w) => w.id)).toContain('task-1');
+
+      // The deliberately legacy item (`kind`/`assignee`/named priority) is
+      // normalised, and reported rather than refused.
+      const task2 = service.listWorkItems().find((w) => w.id === 'task-2')!;
+      expect(task2.assignees.map((a) => a.id)).toEqual(['bob']);
+      expect(task2.priority).toBe(2);
+      expect(service.diagnostics().filter((d) => d.documentId === 'task-2').length).toBeGreaterThan(0);
 
       const updated = await service.updateWorkItem('task-1', { status: 'done' });
       expect(updated.frontmatter.status).toBe('done');
       expect(service.listWorkItems().find((w) => w.id === 'task-1')?.status).toBe('done');
 
-      const created = await service.createWorkItem({ title: 'New work item', assignee: 'carol' });
+      const created = await service.createWorkItem({
+        title: 'New work item',
+        assignees: ['carol'],
+        priority: 0,
+        labels: ['urgent-work'],
+      });
       expect(created.frontmatter.id).toBeTruthy();
-      expect(created.frontmatter.kind).toBe('work-item');
-      expect(created.frontmatter.assignee).toBe('carol');
+      // Created documents use the canonical spellings, so they need no migration.
+      expect(created.frontmatter.type).toBe('work-item');
+      expect(created.frontmatter.kind).toBeUndefined();
+      expect(created.frontmatter.assignees).toEqual(['user:carol']);
+      expect(created.frontmatter.priority).toBe(0);
+      expect(service.diagnostics().filter((d) => d.documentId === created.id)).toEqual([]);
       expect(service.listWorkItems().map((w) => w.id)).toContain(created.id);
 
       // Rename preserves id (board still shows the item by id).

@@ -3,6 +3,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { writeFileSync } from 'node:fs';
 import { WorkspaceService } from './workspace-service.js';
+import type { NewWorkItem } from '@tributary/api';
 import type { Document } from '@tributary/api';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -83,7 +84,8 @@ app.whenReady().then(async () => {
   ipcMain.handle('workspace:search', (_evt, query: string) => service.search(query));
   ipcMain.handle('workspace:listWorkItems', () => service.listWorkItems());
   ipcMain.handle('workspace:updateWorkItem', (_evt, id: string, patch: Record<string, unknown>) => service.updateWorkItem(id, patch));
-  ipcMain.handle('workspace:createWorkItem', (_evt, input: { title: string; status?: string; assignee?: string; priority?: string; project?: string }) => service.createWorkItem(input));
+  ipcMain.handle('workspace:createWorkItem', (_evt, input: NewWorkItem) => service.createWorkItem(input));
+  ipcMain.handle('workspace:diagnostics', () => service.diagnostics());
   ipcMain.handle('workspace:renameDocument', (_evt, id: string, newPath: string) => service.renameDocument(id, newPath));
   ipcMain.handle('workspace:addRemote', (_evt, url: string, name?: string) => service.addRemote(url, name));
   ipcMain.handle('workspace:sync', () => service.sync());

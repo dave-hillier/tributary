@@ -6,7 +6,8 @@ import type { CellResolver, CellResult, TransclusionResolver, EditResolver } fro
 import { findSection, nodeSource, replaceNodeSource } from '@tributary/markdown';
 import CodeMirror from '@uiw/react-codemirror';
 import { markdown } from '@codemirror/lang-markdown';
-import type { Document, WorkItem, Cell } from '@tributary/api';
+import type { Document, NewWorkItem, WorkItem, Cell } from '@tributary/api';
+import { byUrgency, formatRef, STATUSES, type Diagnostic } from '@tributary/ontology';
 import './styles.css';
 
 interface HistoryEntry {
@@ -20,14 +21,6 @@ interface SaveResult {
   changed: boolean;
 }
 
-interface NewWorkItemInput {
-  title: string;
-  status?: string;
-  assignee?: string;
-  priority?: string;
-  project?: string;
-}
-
 interface TributaryApi {
   getDocument: (id: string) => Promise<Document | null>;
   listDocuments: () => Promise<Document[]>;
@@ -39,7 +32,8 @@ interface TributaryApi {
   search: (query: string) => Promise<Document[]>;
   listWorkItems: () => Promise<WorkItem[]>;
   updateWorkItem: (id: string, patch: Record<string, unknown>) => Promise<Document>;
-  createWorkItem: (input: NewWorkItemInput) => Promise<Document>;
+  createWorkItem: (input: NewWorkItem) => Promise<Document>;
+  diagnostics: () => Promise<Diagnostic[]>;
   renameDocument: (id: string, newPath: string) => Promise<Document>;
   addRemote: (url: string, name?: string) => Promise<void>;
   sync: () => Promise<string>;
@@ -133,7 +127,17 @@ function relativeTime(date: string): string {
 type View = 'document' | 'board';
 type Pane = 'rendered' | 'source' | 'diff';
 
-const COLUMN_ORDER = ['todo', 'doing', 'done'];
+// Board columns come from the ontology's vocabulary (ADR-005), not a local
+// list; unknown statuses found in the corpus are appended so a document with a
+// novel status is still visible.
+const COLUMN_ORDER = [...STATUSES];
+
+/** Priority label for display: the numeric scale is canonical (ADR-005 §5). */
+const PRIORITY_LABELS = ['urgent', 'high', 'medium', 'low', 'none'];
+
+function priorityLabel(p: number | undefined): string {
+  return p === undefined ? '' : (PRIORITY_LABELS[p] ?? String(p));
+}
 
 function App() {
   const [docs, setDocs] = useState<Document[]>([]);
@@ -152,7 +156,14 @@ function App() {
   const cellsRef = useRef<Cell[]>([]);
   const [backlinks, setBacklinks] = useState<Document[]>([]);
   const [diff, setDiff] = useState('');
-  const [filters, setFilters] = useState<{ status?: string; assignee?: string; priority?: string; project?: string }>({});
+  const [filters, setFilters] = useState<{
+    status?: string;
+    assignee?: string;
+    priority?: number;
+    label?: string;
+    project?: string;
+  }>({});
+  const [diagnostics, setDiagnostics] = useState<Diagnostic[]>([]);
   const [view, setView] = useState<View>('document');
   const [pane, setPane] = useState<Pane>('rendered');
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
@@ -189,6 +200,8 @@ function App() {
 
   const loadWorkItems = async (): Promise<void> => {
     setWorkItems(await window.tributary.listWorkItems());
+    // Ontology diagnostics are advisory (ADR-005 §9): shown, never blocking.
+    setDiagnostics(await window.tributary.diagnostics().catch(() => []));
   };
 
   useEffect(() => {
@@ -346,16 +359,28 @@ function App() {
   // ── Derived values ─────────────────────────────────────────────────────
 
   const statuses = [...new Set([...COLUMN_ORDER, ...workItems.map((w) => w.status)])];
-  const assignees = [...new Set(workItems.map((w) => w.assignee).filter((x): x is string => x != null))].sort();
-  const priorities = [...new Set(workItems.map((w) => w.priority).filter((x): x is string => x != null))].sort();
-  const projects = [...new Set(workItems.map((w) => w.project).filter((x): x is string => x != null))].sort();
-  const filteredItems = workItems.filter(
-    (w) =>
-      (!filters.status || w.status === filters.status) &&
-      (!filters.assignee || w.assignee === filters.assignee) &&
-      (!filters.priority || w.priority === filters.priority) &&
-      (!filters.project || w.project === filters.project)
+  const assignees = [...new Set(workItems.flatMap((w) => w.assignees.map(formatRef)))].sort();
+  // Priorities sort numerically now, so the facet reads urgent → none rather
+  // than the alphabetical order string priorities forced (ADR-005 §5).
+  const priorities = [...new Set(workItems.map((w) => w.priority).filter((p): p is number => p != null))].sort(
+    (a, b) => a - b
   );
+  const labels = [...new Set(workItems.flatMap((w) => w.labels))].sort();
+  // Group by the *resolved* project id where there is one, so a project rename
+  // does not split the board (ADR-005 §4).
+  const projectKey = (w: WorkItem): string | undefined => w.projectId ?? w.project;
+  const projects = [...new Set(workItems.map(projectKey).filter((p): p is string => p != null))].sort();
+  const projectTitle = (key: string): string => docs.find((d) => d.id === key)?.frontmatter.title ?? key;
+  const filteredItems = workItems
+    .filter(
+      (w) =>
+        (!filters.status || w.status === filters.status) &&
+        (!filters.assignee || w.assignees.some((a) => formatRef(a) === filters.assignee)) &&
+        (filters.priority === undefined || w.priority === filters.priority) &&
+        (!filters.label || w.labels.includes(filters.label)) &&
+        (!filters.project || projectKey(w) === filters.project)
+    )
+    .sort(byUrgency);
 
   const groups = (() => {
     const map = new Map<string, Document[]>();
@@ -495,6 +520,32 @@ function App() {
               <div data-board-toolbar>
                 <span>work items · {workItems.length}</span>
                 <span data-sep>|</span>
+                {diagnostics.length > 0 ? (
+                  <>
+                    <details data-diagnostics>
+                      <summary>
+                        {diagnostics.length} ontology {diagnostics.length === 1 ? 'note' : 'notes'}
+                      </summary>
+                      <ul>
+                        {diagnostics.map((d, i) => (
+                          <li key={d.documentId + d.key + String(i)} data-severity={d.severity}>
+                            <a
+                              href={'#' + d.documentId}
+                              onClick={(e) => {
+                                e.preventDefault();
+                                void load(d.documentId);
+                              }}
+                            >
+                              {d.path}
+                            </a>{' '}
+                            <code>{d.key}</code> — {d.message}
+                          </li>
+                        ))}
+                      </ul>
+                    </details>
+                    <span data-sep>|</span>
+                  </>
+                ) : null}
                 <div data-filters>
                   <select
                     aria-label="status filter"
@@ -523,12 +574,29 @@ function App() {
                   <select
                     aria-label="priority filter"
                     value={filters.priority ?? ''}
-                    onChange={(e) => setFilters({ ...filters, priority: e.target.value || undefined })}
+                    onChange={(e) =>
+                      setFilters({
+                        ...filters,
+                        priority: e.target.value === '' ? undefined : Number(e.target.value),
+                      })
+                    }
                   >
                     <option value="">all priorities</option>
-                    {priorities.map((a) => (
-                      <option key={a} value={a}>
-                        {a}
+                    {priorities.map((p) => (
+                      <option key={p} value={p}>
+                        {p} · {priorityLabel(p)}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    aria-label="label filter"
+                    value={filters.label ?? ''}
+                    onChange={(e) => setFilters({ ...filters, label: e.target.value || undefined })}
+                  >
+                    <option value="">all labels</option>
+                    {labels.map((l) => (
+                      <option key={l} value={l}>
+                        {l}
                       </option>
                     ))}
                   </select>
@@ -538,9 +606,9 @@ function App() {
                     onChange={(e) => setFilters({ ...filters, project: e.target.value || undefined })}
                   >
                     <option value="">all projects</option>
-                    {projects.map((a) => (
-                      <option key={a} value={a}>
-                        {a}
+                    {projects.map((key) => (
+                      <option key={key} value={key}>
+                        {projectTitle(key)}
                       </option>
                     ))}
                   </select>
@@ -563,13 +631,25 @@ function App() {
                             <article key={w.id} onClick={() => void load(w.id)}>
                               <div data-card-head>
                                 <b>{w.title}</b>
-                                <span data-priority={w.priority ?? undefined}>{w.priority ?? ''}</span>
+                                <span data-priority={w.priority ?? undefined}>{priorityLabel(w.priority)}</span>
                               </div>
                               <div data-card-path>
-                                {w.path} · {w.project ?? '—'}
+                                {w.path} · {w.projectId ? projectTitle(w.projectId) : (w.project ?? '—')}
+                                {w.due ? ' · due ' + w.due : ''}
                               </div>
+                              {w.labels.length > 0 ? (
+                                <ul data-labels>
+                                  {w.labels.map((l) => (
+                                    <li key={l}>{l}</li>
+                                  ))}
+                                </ul>
+                              ) : null}
                               <div data-card-foot>
-                                <span>{w.assignee ?? '—'}</span>
+                                <span>
+                                  {w.assignees.length === 0
+                                    ? '—'
+                                    : w.assignees.map((a) => a.id).join(', ')}
+                                </span>
                                 <select
                                   aria-label={'status of ' + w.title}
                                   value={w.status}

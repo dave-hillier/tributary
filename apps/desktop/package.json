@@ -29,6 +29,7 @@
     "@tributary/index": "workspace:*",
     "@tributary/markdown": "workspace:*",
     "@tributary/notebook": "workspace:*",
+    "@tributary/ontology": "workspace:*",
     "@tributary/render": "workspace:*",
     "@tributary/workspace": "workspace:*",
     "@uiw/react-codemirror": "^4.25.11",

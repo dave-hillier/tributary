@@ -2,6 +2,7 @@ import { readFileSync, writeFileSync, readdirSync, mkdirSync, existsSync } from 
 import { join, relative, dirname, sep } from 'node:path';
 import { parseMarkdown, stringifyMarkdown, updateFrontmatter } from '@tributary/markdown';
 import type { Document, DocumentId, WorkspaceRef } from '@tributary/api';
+import { validateDocuments, type Diagnostic } from '@tributary/ontology';
 import { git, isGitRepo, ensureRepo, gitMergeFile } from './git.js';
 import { DEMO_FILES } from './seed.js';
 
@@ -107,6 +108,15 @@ export class Workspace {
 
   getDocument(id: DocumentId): Document | undefined {
     return this.documents.find((d) => d.id === id);
+  }
+
+  /**
+   * Ontology diagnostics for the whole workspace (arch §5.4, ADR-005 §9).
+   * Advisory only: every document here still opens, renders and saves. Computed
+   * on demand so it always reflects the current parse.
+   */
+  diagnostics(): Diagnostic[] {
+    return validateDocuments(this.documents);
   }
 
   /** Write a document and record a semantic checkpoint commit (skips no-ops). */

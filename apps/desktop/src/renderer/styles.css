@@ -64,8 +64,10 @@ small { color: var(--muted); font-size: inherit; }
 
 [data-spacer] { flex: 1; }
 
-[data-priority="high"] { color: var(--accent); }
-[data-priority="medium"] { color: var(--muted); }
+/* Numeric priority scale: 0 most urgent … 4 least (ADR-005). */
+[data-priority="0"], [data-priority="1"] { color: var(--accent); }
+[data-priority="2"] { color: var(--muted); }
+[data-priority="3"], [data-priority="4"] { color: var(--muted); opacity: 0.75; }
 
 /* Status words (green / rust / muted) driven by data attribute, not classes. */
 [data-status="ok"], [data-status="synced"] { color: var(--ok); }
@@ -817,3 +819,34 @@ small { color: var(--muted); font-size: inherit; }
   border-color: var(--accent);
   box-shadow: 0 0 0 2px var(--accent-soft);
 }
+
+/* ── Ontology: work-item labels and advisory diagnostics (ADR-005) ─────── */
+
+[data-labels] {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin: 0.35rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+[data-labels] li {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0 0.45rem;
+  font-size: 0.85em;
+  color: var(--muted);
+}
+
+[data-diagnostics] summary { cursor: pointer; color: var(--muted); }
+
+[data-diagnostics] ul {
+  margin: 0.4rem 0 0;
+  padding-left: 1.1rem;
+  max-width: 60ch;
+}
+
+[data-diagnostics] li { margin: 0.2rem 0; }
+[data-diagnostics] [data-severity="warning"] { color: var(--accent); }
+[data-diagnostics] [data-severity="info"] { color: var(--muted); }

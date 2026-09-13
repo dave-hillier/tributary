@@ -28,6 +28,9 @@ importers:
       '@tributary/notebook':
         specifier: workspace:*
         version: link:../../packages/runtime/notebook
+      '@tributary/ontology':
+        specifier: workspace:*
+        version: link:../../packages/core/ontology
       '@tributary/render':
         specifier: workspace:*
         version: link:../../packages/core/render
@@ -99,13 +102,16 @@ importers:
       '@tributary/api':
         specifier: workspace:*
         version: link:../api
+      '@tributary/markdown':
+        specifier: workspace:*
+        version: link:../markdown
+      '@tributary/ontology':
+        specifier: workspace:*
+        version: link:../ontology
       better-sqlite3:
         specifier: ^11.10.0
         version: 11.10.0
     devDependencies:
-      '@tributary/markdown':
-        specifier: workspace:*
-        version: link:../markdown
       '@types/better-sqlite3':
         specifier: ^7.6.11
         version: 7.6.13
@@ -159,6 +165,22 @@ importers:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@22.20.2)
 
+  packages/core/ontology:
+    dependencies:
+      '@tributary/api':
+        specifier: workspace:*
+        version: link:../api
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.2
+        version: 22.20.2
+      typescript:
+        specifier: ^5.6.3
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.20.2)
+
   packages/core/render:
     dependencies:
       '@tributary/api':
@@ -195,6 +217,9 @@ importers:
       '@tributary/markdown':
         specifier: workspace:*
         version: link:../markdown
+      '@tributary/ontology':
+        specifier: workspace:*
+        version: link:../ontology
     devDependencies:
       '@types/node':
         specifier: ^22.10.2

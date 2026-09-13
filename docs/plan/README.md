@@ -100,10 +100,11 @@ Verified against the green suite as of `26e0f9c` (09-13):
   third-party component (Replot included) can reach a cell yet (finding 11).
 - **Stage 4 (offline jobs + generated reports) is deferred by decision** —
   `@tributary/jobs` remains an empty stub; revisit before starting it.
-- The work-item **ontology is flatter than architecture §3.3** (finding 15):
-  `kind` vs `type`, one string assignee, project-as-label, string priority, no
-  labels/tags/template, and `aliases` resolved only in the shell. Worth an ADR
-  before more is built on it.
+- The work-item **ontology is settled and implemented** (ADR-005, finding 15):
+  typed `entity:id` refs, `assignees` as a list, `project` as a resolved document
+  reference, numeric priority, first-class labels/tags/aliases/due, typed
+  relations in the index, and validation that reports rather than rejects. It
+  lives in `@tributary/ontology`.
 - Findings 6 (inline parser) and 7 (SQLite ownership) are resolved; the HTML
   render path is hardened (arch §8). The Electron ABI is verified under
   Electron's bundled Node (finding 4); the window probe (`smoke:window`)

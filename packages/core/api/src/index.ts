@@ -126,17 +126,57 @@ export type BlockId = string;
 /** Document kind — drives work-item projection and home-page rendering. */
 export type DocumentKind = 'index' | 'wiki' | 'work-item' | 'project' | 'report' | 'note';
 
-/** YAML frontmatter shape. Open-ended by design; known keys are typed. */
+/**
+ * A typed entity reference, written `"<entity>:<id>"` — `user:dave`,
+ * `project:01K…`, `doc:01K…` (ADR-005). A bare string with no prefix is
+ * tolerated and interpreted by the position it appears in.
+ */
+export interface EntityRef {
+  /** `user`, `project`, `doc`, or any other caller-defined entity kind. */
+  entity: string;
+  /** The identifier within that entity space. */
+  id: string;
+  /** The reference exactly as written in the document. */
+  raw: string;
+}
+
+/**
+ * YAML frontmatter shape. Open-ended and schema-tolerant by design (arch §4.2):
+ * unknown keys are preserved, and known keys accept their deprecated spellings
+ * so a hand-edited document never fails to open. `@tributary/ontology`
+ * normalises this raw shape into the canonical model (ADR-005).
+ */
 export interface DocumentFrontmatter {
   id?: DocumentId;
   title?: string;
+  /** Document discriminator (arch §3.3). Canonical. */
+  type?: DocumentKind;
+  /** @deprecated Use `type`. Read as an alias; reported as a diagnostic. */
   kind?: DocumentKind;
-  // Work-item projection fields (arch §3.3) — a board is a projection of these.
+  /** Rename resilience + wiki-link resolution (arch §3.1, §4.2). */
+  aliases?: string[];
+  /** Document-wide navigation/search vocabulary (arch §4.2). */
+  tags?: string[];
+  /** Selects a presentation or report template (arch §4.2). */
+  template?: string;
+  // Work-item fields (arch §3.3) — a board is a projection of these.
   status?: string;
+  /** Typed refs, e.g. `[user:dave]`. Canonical. */
+  assignees?: string[];
+  /** @deprecated Use `assignees`. Normalised into the list. */
   assignee?: string;
-  priority?: string;
+  /** 0 (most urgent) … 4 (least). Legacy names are mapped on read. */
+  priority?: number | string;
+  /** Reference to a project document, resolved through the index. */
   project?: string;
+  /** Work-item labels (arch §3.3). */
+  labels?: string[];
+  /** ISO date. */
   due?: string;
+  /** Reference to a parent work item. */
+  parent?: string;
+  /** References to items this one blocks. */
+  blocks?: string[];
   // Generated-artifact provenance (arch §4.1, §5.5).
   sourceRevision?: string;
   generatedBy?: string;
@@ -157,15 +197,46 @@ export interface Document {
   source?: string;
 }
 
-/** Typed projection of a work-item document (derived from frontmatter). */
+/**
+ * Typed projection of a work-item document, normalised from frontmatter by
+ * `@tributary/ontology` (ADR-005). Every field here is canonical: deprecated
+ * spellings have already been folded in, so no consumer sees `kind`,
+ * a single `assignee` or a string priority.
+ */
 export interface WorkItem {
   id: DocumentId;
   path: string;
   title: string;
   status: string;
-  assignee?: string;
-  priority?: string;
+  assignees: EntityRef[];
+  labels: string[];
+  /** 0 (most urgent) … 4 (least). Absent when the document sets none. */
+  priority?: number;
+  /** The project reference as written, for display and round-tripping. */
   project?: string;
+  /** The project reference resolved to a document id — survives renames. */
+  projectId?: DocumentId;
+  due?: string;
+}
+
+/** A typed edge in the derived index (ADR-005). */
+export type RelationKind = 'link' | 'transclusion' | 'project' | 'parent' | 'blocks';
+
+/**
+ * Input for creating a work item, in canonical ontology terms (ADR-005). The
+ * single shared shape for the shell service, the IPC bridge and the renderer.
+ */
+export interface NewWorkItem {
+  title: string;
+  status?: string;
+  /** Assignee refs; a bare name is read as `user:<name>`. */
+  assignees?: string[];
+  /** 0 (most urgent) … 4 (least). */
+  priority?: number;
+  /** Project reference — an id, path, alias or title. */
+  project?: string;
+  labels?: string[];
+  due?: string;
 }
 
 /** Reference to a local workspace: one Git repository (arch §5.2). */

@@ -22,10 +22,50 @@ describe('Workspace (real temp Git repo)', () => {
     const root = tempDir();
     try {
       const ws = await createDemoWorkspace(root);
-      expect(ws.documents.length).toBe(5);
+      expect(ws.documents.length).toBe(6);
       expect(ws.duplicateIds).toEqual([]);
-      expect(ws.getDocument('task-1')?.frontmatter.kind).toBe('work-item');
-      expect(ws.getDocument('notes/hello')?.frontmatter.kind).toBe('wiki');
+      expect(ws.getDocument('task-1')?.frontmatter.type).toBe('work-item');
+      expect(ws.getDocument('notes/hello')?.frontmatter.type).toBe('wiki');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('reports ontology diagnostics for the demo workspace without refusing it', async () => {
+    const root = tempDir();
+    try {
+      const ws = await createDemoWorkspace(root);
+      const diags = ws.diagnostics();
+      // task-2 is deliberately legacy: `kind`, singular `assignee`, named
+      // priority. All three are read, and all three are reported (ADR-005 §9).
+      const forTask2 = diags.filter((d) => d.documentId === 'task-2');
+      expect(forTask2.map((d) => d.key).sort()).toEqual(['assignee', 'kind', 'priority']);
+      expect(forTask2.every((d) => d.severity === 'info')).toBe(true);
+      // The document still opens and still carries its content.
+      expect(ws.getDocument('task-2')?.frontmatter.title).toBe('Write tests');
+      // The canonical item produces no diagnostics at all.
+      expect(diags.filter((d) => d.documentId === 'task-1')).toEqual([]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('warns on an unresolvable project reference but still opens the document', async () => {
+    const root = tempDir();
+    try {
+      const ws = await createDemoWorkspace(root);
+      const path = join(root, 'items/task-3.md');
+      writeFileSync(
+        path,
+        '---\nid: task-3\ntitle: Orphan\ntype: work-item\nstatus: todo\nproject: no-such-project\n---\n\n# Orphan\n',
+        'utf8',
+      );
+      git(root, ['add', '--', 'items/task-3.md']);
+      git(root, ['commit', '-q', '-m', 'add orphan item']);
+      const reopened = await Workspace.open(root);
+      const diag = reopened.diagnostics().find((d) => d.documentId === 'task-3' && d.key === 'project');
+      expect(diag?.severity).toBe('warning');
+      expect(reopened.getDocument('task-3')?.frontmatter.title).toBe('Orphan');
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -113,7 +153,7 @@ describe('Workspace (real temp Git repo)', () => {
       await ws.fetch('origin');
       const ws2 = await Workspace.clone(bare, cloneDir);
       expect(ws2.documents.length).toBe(ws.documents.length);
-      expect(ws2.getDocument('task-1')?.frontmatter.status).toBe('todo');
+      expect(ws2.getDocument('task-1')?.frontmatter.status).toBe('doing');
     } finally {
       rmSync(root, { recursive: true, force: true });
       rmSync(bare, { recursive: true, force: true });

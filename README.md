@@ -16,6 +16,11 @@ from Git.
   keystroke commits.
 - **Markdown stays readable.** A document remains useful in any editor, on any
   forge, with no runtime installed.
+- **Work items are documents.** A Linear-like work item is a Markdown file with
+  typed frontmatter — typed assignee refs, numeric priority, labels, a project
+  reference resolved by id — projected into board and list views. Changing a
+  status is a document edit with ordinary Git history, and frontmatter stays
+  schema-tolerant: unknown vocabulary is reported, never refused.
 - **Computation lives in the document.** `js`/`ts`/`jsx`/`tsx` fences are
   reactive cells (ADR-004), compiled with esbuild and invalidated through a
   dependency graph, with rich output rendered by React.
@@ -30,6 +35,7 @@ tributary/
 └── packages/
     ├── core/
     │   ├── api/              # typed document/workspace model, capability contracts
+    │   ├── ontology/         # work-item ontology: typed refs, vocabularies, validation
     │   ├── markdown/         # parser: frontmatter, wiki links, transclusion, cells
     │   ├── render/           # AST -> React component registry
     │   ├── workspace/        # workspace service: Git adapter, checkpoints
@@ -72,7 +78,8 @@ pnpm --filter app-desktop smoke:window   # window + contextBridge, needs a deskt
   end-to-end vertical slices), plus a living critical-review log in
   [`findings.md`](docs/plan/findings.md).
 - [`docs/adr/`](docs/adr/README.md) — decision records: Markdown dialect,
-  notebook runtime, local-first sync/checkpoint, the TSX-native cell model.
+  notebook runtime, local-first sync/checkpoint, the TSX-native cell model, the
+  work-item ontology.
 - [`docs/examples/`](docs/examples/) — acceptance fixtures: incremental slices
   of the canonical demo workspace.
 

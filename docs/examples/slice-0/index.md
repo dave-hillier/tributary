@@ -1,6 +1,6 @@
 ---
 title: Tributary Demo
-kind: index
+type: index
 ---
 
 # Tributary Demo

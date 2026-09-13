@@ -1,6 +1,8 @@
 ---
 title: Hello
-kind: wiki
+type: wiki
+aliases: [Greeting, Hello Doc]
+tags: [demo, wiki]
 ---
 
 # Hello

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { parseMarkdown } from '@tributary/markdown';
 import type { Document } from '@tributary/api';
+import { formatRef } from '@tributary/ontology';
 import { buildIndex, collectTargets, findSection, headingText } from '../src/index.js';
 
 function doc(id: string, path: string, source: string): Document {
@@ -36,12 +37,49 @@ describe('buildIndex', () => {
     expect(idx.backlinks.get('notes/hello')).toEqual(['index']);
   });
 
-  it('projects work items from frontmatter', () => {
+  it('projects work items from frontmatter, normalising the legacy spellings', () => {
     const idx = buildIndex(docs);
     expect(idx.workItems).toHaveLength(1);
-    expect(idx.workItems[0].id).toBe('task-1');
-    expect(idx.workItems[0].status).toBe('todo');
-    expect(idx.workItems[0].assignee).toBe('alice');
+    expect(idx.workItems[0]!.id).toBe('task-1');
+    expect(idx.workItems[0]!.status).toBe('todo');
+    // `kind:` + singular `assignee:` still project (ADR-005 tolerance).
+    expect(idx.workItems[0]!.assignees.map(formatRef)).toEqual(['user:alice']);
+  });
+
+  it('resolves by alias and title, not only id and path (ADR-005 §7)', () => {
+    const withAlias = [
+      ...docs,
+      doc('proj', 'work/projects/demo.md', '---\nid: proj\ntitle: Demo Project\ntype: project\naliases: [demo]\n---\n\n# Demo\n'),
+    ];
+    const idx = buildIndex(withAlias);
+    expect(idx.resolve('demo')?.id).toBe('proj');
+    expect(idx.resolve('Demo Project')?.id).toBe('proj');
+  });
+
+  it('records typed relations for frontmatter edges, distinct from prose links', () => {
+    const corpus = [
+      doc('proj', 'work/projects/demo.md', '---\nid: proj\ntitle: Demo\ntype: project\n---\n\n# Demo\n'),
+      doc('t1', 'items/t1.md', '---\nid: t1\ntype: work-item\nproject: proj\nparent: t0\nblocks: [t2]\n---\n\nMentions [[work/projects/demo]] in prose too.\n'),
+      doc('t0', 'items/t0.md', '---\nid: t0\ntype: work-item\n---\n\n# Parent\n'),
+      doc('t2', 'items/t2.md', '---\nid: t2\ntype: work-item\n---\n\n# Blocked\n'),
+    ];
+    const idx = buildIndex(corpus);
+    const kinds = (from: string, to: string): string[] =>
+      idx.relations.filter((r) => r.from === from && r.to === to).map((r) => r.kind).sort();
+    // The same pair carries both a prose mention and a typed project edge.
+    expect(kinds('t1', 'proj')).toEqual(['link', 'project']);
+    expect(kinds('t1', 't0')).toEqual(['parent']);
+    expect(kinds('t1', 't2')).toEqual(['blocks']);
+  });
+
+  it('resolves a work item project reference to a document id', () => {
+    const corpus = [
+      doc('proj', 'work/projects/demo.md', '---\nid: proj\ntitle: Demo\ntype: project\naliases: [demo]\n---\n\n# Demo\n'),
+      doc('t1', 'items/t1.md', '---\nid: t1\ntype: work-item\nproject: demo\n---\n\n# T\n'),
+    ];
+    const item = buildIndex(corpus).workItems[0]!;
+    expect(item.project).toBe('demo');
+    expect(item.projectId).toBe('proj');
   });
 
   it('rebuilds identically (derived state is disposable)', () => {

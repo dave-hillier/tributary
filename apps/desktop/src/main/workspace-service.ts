@@ -7,7 +7,8 @@ import { SqliteIndex } from '@tributary/index';
 import { parseMarkdown, updateFrontmatter, replaceCellSource } from '@tributary/markdown';
 import { ReactiveHost, serializeCellOutput, type CellResult } from '@tributary/notebook';
 import { createElement, Fragment } from 'react';
-import type { Document, DocumentId, WorkItem } from '@tributary/api';
+import type { Document, DocumentId, NewWorkItem, WorkItem } from '@tributary/api';
+import { formatRef, parseRef, type Diagnostic } from '@tributary/ontology';
 
 /**
  * Shell-side workspace service: owns the open workspace and its derived index,
@@ -100,6 +101,16 @@ export class WorkspaceService {
     return this.index?.workItems() ?? [];
   }
 
+  /** Ontology diagnostics — advisory, surfaced in the UI (ADR-005 §9). */
+  diagnostics(): Diagnostic[] {
+    return this.workspace?.diagnostics() ?? [];
+  }
+
+  /** Work items belonging to a project document, by resolved id (ADR-005 §4). */
+  itemsInProject(projectId: DocumentId): WorkItem[] {
+    return this.index?.itemsInProject(projectId) ?? [];
+  }
+
   async updateWorkItem(id: DocumentId, patch: Record<string, unknown>): Promise<Document> {
     const workspace = this.workspace;
     if (!workspace) throw new Error('Workspace not open');
@@ -166,16 +177,29 @@ export class WorkspaceService {
     return workspace.getDocument(id)!;
   }
 
-  async createWorkItem(input: { title: string; status?: string; assignee?: string; priority?: string; project?: string }): Promise<Document> {
+  /**
+   * Create a work item in the canonical ontology (ADR-005): `type`, an
+   * `assignees` list of typed refs and a numeric priority. Deprecated spellings
+   * are never written, so new documents need no migration.
+   */
+  async createWorkItem(input: NewWorkItem): Promise<Document> {
     const workspace = this.workspace;
     const index = this.index;
     if (!workspace || !index) throw new Error('Workspace not open');
     const id = randomUUID();
     const path = 'items/' + id + '.md';
-    const fm: Record<string, unknown> = { id, kind: 'work-item', title: input.title, status: input.status ?? 'todo' };
-    if (input.assignee) fm.assignee = input.assignee;
-    if (input.priority) fm.priority = input.priority;
+    const fm: Record<string, unknown> = {
+      id,
+      type: 'work-item',
+      title: input.title,
+      status: input.status ?? 'todo',
+    };
+    const assignees = (input.assignees ?? []).filter((a) => a.trim() !== '');
+    if (assignees.length > 0) fm.assignees = assignees.map((a) => formatRef(parseRef(a, 'user')));
+    if (input.priority !== undefined) fm.priority = input.priority;
     if (input.project) fm.project = input.project;
+    if (input.labels && input.labels.length > 0) fm.labels = input.labels;
+    if (input.due) fm.due = input.due;
     const source = updateFrontmatter('# ' + input.title + '\n', fm);
     const doc = parseMarkdown(source, { path });
     await workspace.save(doc, 'create work item ' + input.title);

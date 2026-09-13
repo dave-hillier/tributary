@@ -1,7 +1,15 @@
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import Database from 'better-sqlite3';
-import type { Document, DocumentId, WorkItem } from '@tributary/api';
+import type { Document, DocumentId, EntityRef, RelationKind, WorkItem } from '@tributary/api';
+import {
+  formatRef,
+  frontmatterRelations,
+  isWorkItem,
+  parseRef,
+  projectWorkItem,
+  resolveDocument,
+} from '@tributary/ontology';
 import { collectTargets } from './index.js';
 
 /** Concatenate plain text from a document AST (for FTS indexing). */
@@ -30,16 +38,15 @@ function ftsQuery(raw: string): string {
  * Ownership split (finding 7):
  * - SQLite owns the *queries*: links/backlinks relations, FTS5 full-text
  *   search, and the typed work-item projection (`work_items`).
- * - The in-memory `this.docs` list (with id/path maps) owns document
- *   *resolution*, because the application always holds parsed documents; a
- *   `documents` table duplicating them added storage without a consumer.
- *   `resolve()` therefore serves from the maps and never hits SQLite.
+ * - The in-memory `this.docs` list owns document *resolution*, because the
+ *   application always holds parsed documents; a `documents` table duplicating
+ *   them added storage without a consumer. `resolve()` therefore delegates to
+ *   the shared ontology resolver (ADR-005 §7) and never hits SQLite.
  */
 export class SqliteIndex {
   private db: InstanceType<typeof Database>;
   private docs: Document[] = [];
   private byId = new Map<DocumentId, Document>();
-  private byPath = new Map<string, Document>();
 
   constructor(path: string = ':memory:') {
     if (path !== ':memory:') {
@@ -51,17 +58,33 @@ export class SqliteIndex {
       this.db.pragma('journal_mode = WAL');
     }
     this.db.exec(`
+      -- Typed edges (ADR-005 §8): 'link'/'transclusion' are prose references,
+      -- 'project'/'parent'/'blocks' are frontmatter relations.
       CREATE TABLE IF NOT EXISTS links (
         from_id TEXT NOT NULL,
         to_id TEXT NOT NULL,
-        PRIMARY KEY (from_id, to_id)
+        relation TEXT NOT NULL DEFAULT 'link',
+        PRIMARY KEY (from_id, to_id, relation)
       );
       CREATE TABLE IF NOT EXISTS work_items (
         id TEXT PRIMARY KEY,
         status TEXT NOT NULL DEFAULT 'todo',
-        assignee TEXT,
-        priority TEXT,
-        project TEXT
+        priority INTEGER,
+        project TEXT,
+        project_id TEXT,
+        due TEXT
+      );
+      -- Multi-valued work-item fields, normalised out of the item row.
+      CREATE TABLE IF NOT EXISTS work_item_assignees (
+        id TEXT NOT NULL,
+        entity TEXT NOT NULL,
+        entity_id TEXT NOT NULL,
+        PRIMARY KEY (id, entity, entity_id)
+      );
+      CREATE TABLE IF NOT EXISTS work_item_labels (
+        id TEXT NOT NULL,
+        label TEXT NOT NULL,
+        PRIMARY KEY (id, label)
       );
       CREATE VIRTUAL TABLE IF NOT EXISTS docs_fts USING fts5(id UNINDEXED, title, body);
     `);
@@ -71,71 +94,136 @@ export class SqliteIndex {
   rebuild(documents: Document[]): void {
     this.docs = documents;
     this.byId = new Map(documents.map((d) => [d.id, d] as const));
-    this.byPath = new Map(documents.map((d) => [d.path, d] as const));
-    const byId = this.byId;
-    const byPath = this.byPath;
-    const resolveId = (t: string): DocumentId | undefined =>
-      byId.get(t)?.id ?? byPath.get(t)?.id ?? byPath.get(t + '.md')?.id;
+    const resolveId = (t: string): DocumentId | undefined => resolveDocument(documents, t)?.id;
 
     const insertWorkItem = this.db.prepare(
-      'INSERT OR REPLACE INTO work_items (id, status, assignee, priority, project) VALUES (?,?,?,?,?)'
+      'INSERT OR REPLACE INTO work_items (id, status, priority, project, project_id, due) VALUES (?,?,?,?,?,?)'
     );
-    const insertLink = this.db.prepare('INSERT OR IGNORE INTO links (from_id, to_id) VALUES (?,?)');
+    const insertAssignee = this.db.prepare(
+      'INSERT OR IGNORE INTO work_item_assignees (id, entity, entity_id) VALUES (?,?,?)'
+    );
+    const insertLabel = this.db.prepare('INSERT OR IGNORE INTO work_item_labels (id, label) VALUES (?,?)');
+    const insertLink = this.db.prepare(
+      'INSERT OR IGNORE INTO links (from_id, to_id, relation) VALUES (?,?,?)'
+    );
     const insertFts = this.db.prepare('INSERT INTO docs_fts (id, title, body) VALUES (?,?,?)');
 
     const tx = this.db.transaction(() => {
       this.db.exec('DELETE FROM links');
       this.db.exec('DELETE FROM work_items');
+      this.db.exec('DELETE FROM work_item_assignees');
+      this.db.exec('DELETE FROM work_item_labels');
       this.db.exec('DELETE FROM docs_fts');
       for (const d of documents) {
         const fm = d.frontmatter;
-        if (fm.kind === 'work-item') {
+        if (isWorkItem(fm)) {
+          const item = projectWorkItem(d, documents);
           insertWorkItem.run(
-            d.id,
-            fm.status ?? 'todo',
-            fm.assignee ?? null,
-            fm.priority ?? null,
-            fm.project ?? null
+            item.id,
+            item.status,
+            item.priority ?? null,
+            item.project ?? null,
+            item.projectId ?? null,
+            item.due ?? null
           );
+          for (const a of item.assignees) insertAssignee.run(item.id, a.entity, a.id);
+          for (const l of item.labels) insertLabel.run(item.id, l);
         }
         insertFts.run(d.id, fm.title ?? '', extractText(d));
         for (const target of collectTargets(d)) {
           const toId = resolveId(target);
-          if (toId) insertLink.run(d.id, toId);
+          if (toId) insertLink.run(d.id, toId, 'link');
+        }
+        for (const rel of frontmatterRelations(d)) {
+          const toId = resolveId(rel.target);
+          if (toId) insertLink.run(d.id, toId, rel.kind);
         }
       }
     });
     tx();
   }
 
-  /** Resolve a wiki-link/transclusion target by id or path (in-memory maps). */
+  /**
+   * Resolve a target by id, path, alias or title — the shared ontology rule
+   * (ADR-005 §7), so this agrees with the shell's resolution.
+   */
   resolve(target: string): Document | undefined {
-    return this.byId.get(target) ?? this.byPath.get(target) ?? this.byPath.get(target + '.md');
+    return resolveDocument(this.docs, target);
   }
 
-  links(id: DocumentId): DocumentId[] {
-    return (this.db.prepare('SELECT to_id FROM links WHERE from_id = ?').all(id) as { to_id: string }[]).map((r) => r.to_id);
+  /** Outgoing edges, optionally narrowed to one relation kind (ADR-005 §8). */
+  links(id: DocumentId, relation?: RelationKind): DocumentId[] {
+    const sql = relation
+      ? 'SELECT to_id FROM links WHERE from_id = ? AND relation = ?'
+      : 'SELECT to_id FROM links WHERE from_id = ?';
+    const args = relation ? [id, relation] : [id];
+    return (this.db.prepare(sql).all(...args) as { to_id: string }[]).map((r) => r.to_id);
   }
 
-  backlinks(id: DocumentId): DocumentId[] {
-    return (this.db.prepare('SELECT from_id FROM links WHERE to_id = ?').all(id) as { from_id: string }[]).map((r) => r.from_id);
+  /** Incoming edges, optionally narrowed to one relation kind. */
+  backlinks(id: DocumentId, relation?: RelationKind): DocumentId[] {
+    const sql = relation
+      ? 'SELECT from_id FROM links WHERE to_id = ? AND relation = ?'
+      : 'SELECT from_id FROM links WHERE to_id = ?';
+    const args = relation ? [id, relation] : [id];
+    return (this.db.prepare(sql).all(...args) as { from_id: string }[]).map((r) => r.from_id);
   }
 
-  /** Typed work-item projection, served from the SQLite `work_items` table. */
+  /** The work items belonging to a project document, by resolved id. */
+  itemsInProject(projectId: DocumentId): WorkItem[] {
+    const rows = this.db
+      .prepare('SELECT id FROM work_items WHERE project_id = ? ORDER BY id')
+      .all(projectId) as { id: string }[];
+    const ids = new Set(rows.map((r) => r.id));
+    return this.workItems().filter((w) => ids.has(w.id));
+  }
+
+  /** Typed work-item projection, served from the SQLite tables (ADR-005). */
   workItems(): WorkItem[] {
     const rows = this.db
-      .prepare('SELECT id, status, assignee, priority, project FROM work_items ORDER BY id')
-      .all() as Array<{ id: string; status: string; assignee: string | null; priority: string | null; project: string | null }>;
+      .prepare('SELECT id, status, priority, project, project_id, due FROM work_items ORDER BY id')
+      .all() as Array<{
+      id: string;
+      status: string;
+      priority: number | null;
+      project: string | null;
+      project_id: string | null;
+      due: string | null;
+    }>;
+    const assigneeRows = this.db
+      .prepare('SELECT id, entity, entity_id FROM work_item_assignees ORDER BY entity, entity_id')
+      .all() as Array<{ id: string; entity: string; entity_id: string }>;
+    const labelRows = this.db
+      .prepare('SELECT id, label FROM work_item_labels ORDER BY label')
+      .all() as Array<{ id: string; label: string }>;
+
+    const assigneesById = new Map<string, EntityRef[]>();
+    for (const r of assigneeRows) {
+      const ref = parseRef(r.entity + ':' + r.entity_id, r.entity);
+      const list = assigneesById.get(r.id) ?? [];
+      list.push({ ...ref, raw: formatRef(ref) });
+      assigneesById.set(r.id, list);
+    }
+    const labelsById = new Map<string, string[]>();
+    for (const r of labelRows) {
+      const list = labelsById.get(r.id) ?? [];
+      list.push(r.label);
+      labelsById.set(r.id, list);
+    }
+
     return rows.map((r) => {
-      const path = this.byId.get(r.id)?.path ?? r.id;
+      const doc = this.byId.get(r.id);
       return {
         id: r.id,
-        path,
-        title: this.byId.get(r.id)?.frontmatter.title ?? r.id,
+        path: doc?.path ?? r.id,
+        title: doc?.frontmatter.title ?? r.id,
         status: r.status,
-        assignee: r.assignee ?? undefined,
+        assignees: assigneesById.get(r.id) ?? [],
+        labels: labelsById.get(r.id) ?? [],
         priority: r.priority ?? undefined,
         project: r.project ?? undefined,
+        projectId: r.project_id ?? undefined,
+        due: r.due ?? undefined,
       };
     });
   }

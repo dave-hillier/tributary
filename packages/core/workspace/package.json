@@ -22,11 +22,12 @@
   },
   "dependencies": {
     "@tributary/api": "workspace:*",
-    "@tributary/markdown": "workspace:*"
+    "@tributary/markdown": "workspace:*",
+    "@tributary/ontology": "workspace:*"
   },
   "devDependencies": {
+    "@types/node": "^22.10.2",
     "typescript": "^5.6.3",
-    "vitest": "^2.1.8",
-    "@types/node": "^22.10.2"
+    "vitest": "^2.1.8"
   }
 }

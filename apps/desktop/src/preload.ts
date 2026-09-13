@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { Document, WorkItem } from '@tributary/api';
+import type { Document, NewWorkItem, WorkItem } from '@tributary/api';
+import type { Diagnostic } from '@tributary/ontology';
 
 interface HistoryEntry {
   hash: string;
@@ -20,8 +21,9 @@ const api = {
   listWorkItems: (): Promise<WorkItem[]> => ipcRenderer.invoke('workspace:listWorkItems'),
   updateWorkItem: (id: string, patch: Record<string, unknown>): Promise<Document> =>
     ipcRenderer.invoke('workspace:updateWorkItem', id, patch),
-  createWorkItem: (input: { title: string; status?: string; assignee?: string; priority?: string; project?: string }): Promise<Document> =>
+  createWorkItem: (input: NewWorkItem): Promise<Document> =>
     ipcRenderer.invoke('workspace:createWorkItem', input),
+  diagnostics: (): Promise<Diagnostic[]> => ipcRenderer.invoke('workspace:diagnostics'),
   renameDocument: (id: string, newPath: string): Promise<Document> =>
     ipcRenderer.invoke('workspace:renameDocument', id, newPath),
   addRemote: (url: string, name?: string): Promise<void> =>

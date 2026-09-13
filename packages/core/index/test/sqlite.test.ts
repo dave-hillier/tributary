@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { parseMarkdown } from '@tributary/markdown';
+import { formatRef } from '@tributary/ontology';
 import { SqliteIndex } from '../src/sqlite.js';
 
 const docs = [
@@ -27,14 +28,52 @@ describe('SqliteIndex (better-sqlite3 + FTS5)', () => {
     idx.close();
   });
 
-  it('projects work items from frontmatter', () => {
+  it('projects work items from frontmatter, normalising legacy spellings', () => {
     const idx = new SqliteIndex(':memory:');
     idx.rebuild(docs);
     const items = idx.workItems();
     expect(items).toHaveLength(1);
-    expect(items[0].id).toBe('task-1');
-    expect(items[0].assignee).toBe('alice');
-    expect(items[0].status).toBe('todo');
+    expect(items[0]!.id).toBe('task-1');
+    expect(items[0]!.assignees.map(formatRef)).toEqual(['user:alice']);
+    expect(items[0]!.status).toBe('todo');
+    idx.close();
+  });
+
+  it('round-trips the full ontology through SQLite (ADR-005)', () => {
+    const idx = new SqliteIndex(':memory:');
+    const corpus = [
+      parseMarkdown('---\nid: proj\ntitle: Demo Project\ntype: project\naliases: [demo]\n---\n\n# Demo\n', {
+        path: 'work/projects/demo.md',
+      }),
+      parseMarkdown(
+        '---\nid: t1\ntitle: Ship\ntype: work-item\nstatus: doing\nassignees: [user:alice, user:carol]\npriority: 1\nproject: demo\nlabels: [release, demo]\ndue: 2026-09-30\n---\n\n# Ship\n',
+        { path: 'items/t1.md' },
+      ),
+    ];
+    idx.rebuild(corpus);
+    const item = idx.workItems().find((w) => w.id === 't1')!;
+    expect(item.assignees.map(formatRef)).toEqual(['user:alice', 'user:carol']);
+    expect(item.priority).toBe(1);
+    expect(item.labels.sort()).toEqual(['demo', 'release']);
+    expect(item.due).toBe('2026-09-30');
+    expect(item.projectId).toBe('proj');
+    // The typed edge is queryable on its own, apart from prose links.
+    expect(idx.links('t1', 'project')).toEqual(['proj']);
+    expect(idx.backlinks('proj', 'project')).toEqual(['t1']);
+    expect(idx.itemsInProject('proj').map((w) => w.id)).toEqual(['t1']);
+    idx.close();
+  });
+
+  it('keeps project grouping when the project document is renamed', () => {
+    const idx = new SqliteIndex(':memory:');
+    const project = parseMarkdown('---\nid: proj\ntitle: Demo\ntype: project\naliases: [demo]\n---\n\n# Demo\n', {
+      path: 'work/projects/demo.md',
+    });
+    const item = parseMarkdown('---\nid: t1\ntype: work-item\nproject: demo\n---\n\n# T\n', {
+      path: 'items/t1.md',
+    });
+    idx.rebuild([{ ...project, path: 'work/projects/renamed.md' }, item]);
+    expect(idx.itemsInProject('proj').map((w) => w.id)).toEqual(['t1']);
     idx.close();
   });
 
