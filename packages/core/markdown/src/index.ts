@@ -41,10 +41,14 @@ export function parseMarkdown(source: string, options: ParseOptions = {}): Docum
 /** Serialize a Document back to Markdown (frontmatter + AST), canonical form. */
 export function stringifyMarkdown(doc: Document, _options: StringifyOptions = {}): string {
   const body = stringifier.stringify(doc.root);
-  const keys = Object.keys(doc.frontmatter);
-  if (keys.length === 0) return body;
-  const yaml = stringifyFrontmatter(doc.frontmatter);
-  return '---\n' + yaml + '---\n\n' + body;
+  // Prefer the raw frontmatter text (verbatim, comments/formatting preserved);
+  // fall back to re-serializing the parsed object when no source is available.
+  let fm: string | null = doc.source ? parseFrontmatter(doc.source).raw : null;
+  if (fm === null && Object.keys(doc.frontmatter).length > 0) {
+    fm = stringifyFrontmatter(doc.frontmatter).trimEnd();
+  }
+  if (fm === null) return body;
+  return '---\n' + fm + '\n---\n\n' + body;
 }
 
-export { parseFrontmatter } from './frontmatter.js';
+export { parseFrontmatter, updateFrontmatter } from './frontmatter.js';
