@@ -48,6 +48,20 @@ describe('Stage 1 slice: the Git round-trip', () => {
       const rebuilt = buildIndex(service.listDocuments());
       expect(rebuilt.resolve('items/task-1')?.id).toBe('task-1');
       expect(rebuilt.resolve('notes/hello')?.id).toBe('notes/hello');
+
+      // Work-item board: projection, frontmatter update, and create with stable id.
+      expect(service.listWorkItems().length).toBeGreaterThanOrEqual(2);
+      expect(service.listWorkItems().find((w) => w.id === 'task-1')?.status).toBe('todo');
+
+      const updated = await service.updateWorkItem('task-1', { status: 'done' });
+      expect(updated.frontmatter.status).toBe('done');
+      expect(service.listWorkItems().find((w) => w.id === 'task-1')?.status).toBe('done');
+
+      const created = await service.createWorkItem({ title: 'New work item', assignee: 'carol' });
+      expect(created.frontmatter.id).toBeTruthy();
+      expect(created.frontmatter.kind).toBe('work-item');
+      expect(created.frontmatter.assignee).toBe('carol');
+      expect(service.listWorkItems().map((w) => w.id)).toContain(created.id);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

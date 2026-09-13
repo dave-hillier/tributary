@@ -1,9 +1,11 @@
 import { mkdtempSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Workspace, createDemoWorkspace, type CommitInfo } from '@tributary/workspace';
 import { SqliteIndex } from '@tributary/index';
-import type { Document, DocumentId } from '@tributary/api';
+import { parseMarkdown, updateFrontmatter } from '@tributary/markdown';
+import type { Document, DocumentId, WorkItem } from '@tributary/api';
 
 /**
  * Shell-side workspace service: owns the open workspace and its derived index,
@@ -60,5 +62,38 @@ export class WorkspaceService {
 
   search(query: string): Document[] {
     return this.index?.search(query) ?? [];
+  }
+
+  listWorkItems(): WorkItem[] {
+    return this.index?.workItems() ?? [];
+  }
+
+  async updateWorkItem(id: DocumentId, patch: Record<string, unknown>): Promise<Document> {
+    const workspace = this.workspace;
+    if (!workspace) throw new Error('Workspace not open');
+    const doc = workspace.getDocument(id);
+    if (!doc || !doc.source) throw new Error('Document not found: ' + id);
+    const newSource = updateFrontmatter(doc.source, patch);
+    const updated = parseMarkdown(newSource, { path: doc.path });
+    const message = id + ': ' + Object.entries(patch).map(([k, v]) => k + ' → ' + String(v)).join(', ');
+    await this.saveDocument(updated, message);
+    return workspace.getDocument(id) ?? updated;
+  }
+
+  async createWorkItem(input: { title: string; status?: string; assignee?: string; priority?: string; project?: string }): Promise<Document> {
+    const workspace = this.workspace;
+    const index = this.index;
+    if (!workspace || !index) throw new Error('Workspace not open');
+    const id = randomUUID();
+    const path = 'items/' + id + '.md';
+    const fm: Record<string, unknown> = { id, kind: 'work-item', title: input.title, status: input.status ?? 'todo' };
+    if (input.assignee) fm.assignee = input.assignee;
+    if (input.priority) fm.priority = input.priority;
+    if (input.project) fm.project = input.project;
+    const source = updateFrontmatter('# ' + input.title + '\n', fm);
+    const doc = parseMarkdown(source, { path });
+    await workspace.save(doc, 'create work item ' + input.title);
+    index.rebuild(workspace.documents);
+    return workspace.getDocument(id) ?? doc;
   }
 }

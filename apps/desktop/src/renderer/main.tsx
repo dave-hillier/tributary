@@ -2,7 +2,7 @@ import { StrictMode, useEffect, useState } from 'react';
 import type { MouseEvent } from 'react';
 import { createRoot } from 'react-dom/client';
 import { DocumentView } from '@tributary/components';
-import type { Document } from '@tributary/api';
+import type { Document, WorkItem } from '@tributary/api';
 
 interface HistoryEntry {
   hash: string;
@@ -10,13 +10,29 @@ interface HistoryEntry {
   date: string;
 }
 
+interface SaveResult {
+  commit: string | null;
+  changed: boolean;
+}
+
+interface NewWorkItemInput {
+  title: string;
+  status?: string;
+  assignee?: string;
+  priority?: string;
+  project?: string;
+}
+
 interface TributaryApi {
   getDocument: (id: string) => Promise<Document | null>;
   listDocuments: () => Promise<Document[]>;
-  saveDocument: (doc: Document, message?: string) => Promise<{ commit: string | null; changed: boolean }>;
+  saveDocument: (doc: Document, message?: string) => Promise<SaveResult>;
   history: (id: string) => Promise<HistoryEntry[]>;
   resolveLink: (target: string) => Promise<Document | null>;
   search: (query: string) => Promise<Document[]>;
+  listWorkItems: () => Promise<WorkItem[]>;
+  updateWorkItem: (id: string, patch: Record<string, unknown>) => Promise<Document>;
+  createWorkItem: (input: NewWorkItemInput) => Promise<Document>;
 }
 
 declare global {
@@ -25,7 +41,7 @@ declare global {
   }
 }
 
-function App(): JSX.Element {
+function App() {
   const [docs, setDocs] = useState<Document[]>([]);
   const [current, setCurrent] = useState<Document | null>(null);
   const [source, setSource] = useState('');
@@ -33,6 +49,8 @@ function App(): JSX.Element {
   const [savedMsg, setSavedMsg] = useState('');
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<Document[]>([]);
+  const [workItems, setWorkItems] = useState<WorkItem[]>([]);
+  const [newTitle, setNewTitle] = useState('');
 
   const load = async (id: string): Promise<void> => {
     const d = await window.tributary.getDocument(id);
@@ -43,12 +61,17 @@ function App(): JSX.Element {
     }
   };
 
+  const loadWorkItems = async (): Promise<void> => {
+    setWorkItems(await window.tributary.listWorkItems());
+  };
+
   useEffect(() => {
     (async () => {
       const list = await window.tributary.listDocuments();
       setDocs(list);
       const home = list.find((d) => d.id === 'index') ?? list[0];
       if (home) await load(home.id);
+      await loadWorkItems();
     })();
   }, []);
 
@@ -79,8 +102,57 @@ function App(): JSX.Element {
     }
   };
 
+  const changeStatus = async (id: string, status: string): Promise<void> => {
+    const updated = await window.tributary.updateWorkItem(id, { status });
+    await loadWorkItems();
+    if (current && current.id === id) {
+      setCurrent(updated);
+      setSource(updated.source ?? '');
+    }
+  };
+
+  const createItem = async (): Promise<void> => {
+    if (!newTitle.trim()) return;
+    await window.tributary.createWorkItem({ title: newTitle.trim() });
+    setNewTitle('');
+    await loadWorkItems();
+    setDocs(await window.tributary.listDocuments());
+  };
+
+  const statuses = [...new Set(workItems.map((w) => w.status))].sort();
+
   return (
     <div>
+      <h2>Work items</h2>
+      <div style={{ display: 'flex', gap: '1rem' }}>
+        {statuses.map((status) => (
+          <div key={status} style={{ flex: 1, border: '1px solid #ccc', padding: '0.5rem' }}>
+            <h3>{status}</h3>
+            {workItems
+              .filter((w) => w.status === status)
+              .map((w) => (
+                <div key={w.id} style={{ marginBottom: '0.5rem' }}>
+                  <button onClick={() => void load(w.id)}>{w.title}</button>
+                  <div>assignee: {w.assignee ?? '—'} · priority: {w.priority ?? '—'}</div>
+                  <select value={w.status} onChange={(e) => void changeStatus(w.id, e.target.value)}>
+                    {statuses.map((s) => (
+                      <option key={s} value={s}>
+                        {s}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ))}
+          </div>
+        ))}
+      </div>
+      <div style={{ marginTop: '0.5rem' }}>
+        <input value={newTitle} onChange={(e) => setNewTitle(e.target.value)} placeholder="New work item title" />
+        <button onClick={() => void createItem()}>New work item</button>
+      </div>
+
+      <hr />
+
       <div>
         <input
           value={query}
@@ -115,12 +187,7 @@ function App(): JSX.Element {
             <DocumentView document={current} />
           </div>
           <hr />
-          <textarea
-            value={source}
-            onChange={(e) => setSource(e.target.value)}
-            rows={10}
-            style={{ width: '100%' }}
-          />
+          <textarea value={source} onChange={(e) => setSource(e.target.value)} rows={10} style={{ width: '100%' }} />
           <button onClick={() => void onSave()}>Save (checkpoint)</button>
           {savedMsg ? <p>{savedMsg}</p> : null}
           <h3>History</h3>

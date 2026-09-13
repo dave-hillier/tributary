@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { Document } from '@tributary/api';
+import type { Document, WorkItem } from '@tributary/api';
 
 interface HistoryEntry {
   hash: string;
@@ -15,6 +15,11 @@ const api = {
   history: (id: string): Promise<HistoryEntry[]> => ipcRenderer.invoke('workspace:history', id),
   resolveLink: (target: string): Promise<Document | null> => ipcRenderer.invoke('workspace:resolveLink', target),
   search: (query: string): Promise<Document[]> => ipcRenderer.invoke('workspace:search', query),
+  listWorkItems: (): Promise<WorkItem[]> => ipcRenderer.invoke('workspace:listWorkItems'),
+  updateWorkItem: (id: string, patch: Record<string, unknown>): Promise<Document> =>
+    ipcRenderer.invoke('workspace:updateWorkItem', id, patch),
+  createWorkItem: (input: { title: string; status?: string; assignee?: string; priority?: string; project?: string }): Promise<Document> =>
+    ipcRenderer.invoke('workspace:createWorkItem', input),
 };
 
 contextBridge.exposeInMainWorld('tributary', api);
