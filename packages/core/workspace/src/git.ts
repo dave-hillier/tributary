@@ -1,4 +1,7 @@
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 
 /** Run git in a repo working directory, returning trimmed stdout. */
 export function git(cwd: string, args: string[]): string {
@@ -12,6 +15,20 @@ export function isGitRepo(cwd: string): boolean {
   } catch {
     return false;
   }
+}
+
+/** Three-way merge via git merge-file: merge ours and theirs onto a common base. */
+export function gitMergeFile(base: string, ours: string, theirs: string): { merged: string; conflict: boolean } {
+  const dir = mkdtempSync(join(tmpdir(), 'tributary-merge-'));
+  const b = join(dir, 'base');
+  const o = join(dir, 'ours');
+  const t = join(dir, 'theirs');
+  writeFileSync(b, base, 'utf8');
+  writeFileSync(o, ours, 'utf8');
+  writeFileSync(t, theirs, 'utf8');
+  const res = spawnSync('git', ['merge-file', '-p', o, b, t], { encoding: 'utf8' });
+  rmSync(dir, { recursive: true, force: true });
+  return { merged: res.stdout ?? '', conflict: res.status !== 0 };
 }
 
 /** Initialize a repo if needed and set a local identity (for seed/commit in tests). */

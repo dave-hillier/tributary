@@ -101,7 +101,7 @@ describe('Workspace (real temp Git repo)', () => {
     }
   });
 
-  it('refuses to clobber a stale base', async () => {
+  it('surfaces a merge conflict when the file changed externally', async () => {
     const root = tempDir();
     try {
       const ws = await createDemoWorkspace(root);
@@ -110,8 +110,8 @@ describe('Workspace (real temp Git repo)', () => {
       writeFileSync(join(root, 'notes/hello.md'), '---\ntitle: Hello\nkind: wiki\n---\n\n# External change\n');
       git(root, ['add', 'notes/hello.md']);
       git(root, ['commit', '-q', '-m', 'external change']);
-      // saving the stale doc must throw
-      await expect(ws.save(doc, 'my edit')).rejects.toThrow(/Stale/);
+      // saving the stale doc now merges (and conflicts here) instead of clobbering
+      await expect(ws.save(doc, 'my edit')).rejects.toThrow(/Merge conflict/);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -143,6 +143,44 @@ describe('Workspace (real temp Git repo)', () => {
       expect(after.path).toBe('items/ship-demo.md');
       expect(after.frontmatter.id).toBe('task-1');
       expect(readFileSync(join(root, 'items/ship-demo.md'), 'utf8')).toContain('id: task-1');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('three-way merges non-overlapping concurrent edits', async () => {
+    const root = tempDir();
+    try {
+      const ws = await createDemoWorkspace(root);
+      const doc = ws.getDocument('notes/hello')!;
+      // external edit to the title line
+      writeFileSync(join(root, 'notes/hello.md'), doc.source!.replace('# Hello', '# Hello (theirs)'));
+      git(root, ['add', 'notes/hello.md']);
+      git(root, ['commit', '-q', '-m', 'external edit']);
+      // ours edits a different (body) line
+      doc.source = doc.source!.replace('A simple wiki document', 'A simple wiki document (ours)');
+      const result = await ws.save(doc, 'our edit');
+      expect(result.changed).toBe(true);
+      const final = readFileSync(join(root, 'notes/hello.md'), 'utf8');
+      expect(final).toContain('# Hello (theirs)');
+      expect(final).toContain('A simple wiki document (ours)');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('surfaces a conflict on overlapping concurrent edits', async () => {
+    const root = tempDir();
+    try {
+      const ws = await createDemoWorkspace(root);
+      const doc = ws.getDocument('notes/hello')!;
+      // external edit to the same heading line
+      writeFileSync(join(root, 'notes/hello.md'), doc.source!.replace('# Hello', '# Hello (theirs)'));
+      git(root, ['add', 'notes/hello.md']);
+      git(root, ['commit', '-q', '-m', 'external edit']);
+      // ours edits the same line
+      doc.source = doc.source!.replace('# Hello', '# Hello (ours)');
+      await expect(ws.save(doc, 'our edit')).rejects.toThrow(/Merge conflict/);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

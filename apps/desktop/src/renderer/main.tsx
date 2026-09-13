@@ -86,9 +86,13 @@ function App() {
 
   const onSave = async (): Promise<void> => {
     if (!current) return;
-    const result = await window.tributary.saveDocument({ ...current, source }, 'edit from UI');
-    setSavedMsg(result.changed ? 'Saved ' + (result.commit ?? '').slice(0, 7) : 'No changes');
-    await load(current.id);
+    try {
+      const result = await window.tributary.saveDocument({ ...current, source }, 'edit from UI');
+      setSavedMsg(result.changed ? 'Saved ' + (result.commit ?? '').slice(0, 7) : 'No changes');
+      await load(current.id);
+    } catch (e) {
+      setSavedMsg('Save failed: ' + String(e));
+    }
   };
 
   const onSearch = async (): Promise<void> => {

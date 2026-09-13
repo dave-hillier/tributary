@@ -2,7 +2,7 @@ import { readFileSync, writeFileSync, readdirSync, mkdirSync, existsSync } from 
 import { join, relative, dirname, sep } from 'node:path';
 import { parseMarkdown, stringifyMarkdown, updateFrontmatter } from '@tributary/markdown';
 import type { Document, DocumentId, WorkspaceRef } from '@tributary/api';
-import { git, isGitRepo, ensureRepo } from './git.js';
+import { git, isGitRepo, ensureRepo, gitMergeFile } from './git.js';
 import { DEMO_FILES } from './seed.js';
 
 export interface DuplicateIdReport {
@@ -38,6 +38,17 @@ function listMarkdownFiles(rootPath: string): string[] {
  * A local workspace over one Git repository (arch §5.2). Git is the durable
  * truth; this class reads from it and writes semantic checkpoints back to it.
  */
+export class MergeConflictError extends Error {
+  readonly id: DocumentId;
+  readonly conflicted: string;
+  constructor(id: DocumentId, conflicted: string) {
+    super('Merge conflict for document ' + id);
+    this.name = 'MergeConflictError';
+    this.id = id;
+    this.conflicted = conflicted;
+  }
+}
+
 export class StaleBaseError extends Error {
   readonly id: DocumentId;
   constructor(id: DocumentId) {
@@ -114,7 +125,8 @@ export class Workspace {
       return { commit: null, changed: false };
     }
 
-    // Stale-base guard: refuse to clobber a file that changed since open.
+    // Stale-base guard: if the file moved under us, three-way merge instead of
+    // clobbering; surface conflicts rather than losing either side.
     const base = this.baseBlobs.get(doc.id);
     if (base) {
       let headBlob: string | null = null;
@@ -124,7 +136,13 @@ export class Workspace {
         headBlob = null;
       }
       if (headBlob && headBlob !== base) {
-        throw new StaleBaseError(doc.id);
+        const baseContent = git(this.ref.rootPath, ['cat-file', '-p', base]);
+        const theirsContent = git(this.ref.rootPath, ['show', 'HEAD:' + doc.path]);
+        const { merged, conflict } = gitMergeFile(baseContent, newSource, theirsContent);
+        if (conflict) {
+          throw new MergeConflictError(doc.id, merged);
+        }
+        newSource = merged;
       }
     }
 
