@@ -48,6 +48,35 @@ export function shimImports(source: string): string {
   });
 }
 
+/**
+ * Capability boundary preamble (ADR-004): cells execute with ONLY `React` and
+ * `__scope` (api/components) in scope. Shadowing the ambient runtime binding
+ * names as local `undefined`s denies the ambient power set — `process`,
+ * `require`, module hooks, the browser globals and `globalThis` itself — so a
+ * cell must go through the capability API to touch the host. (Workspaces are
+ * trusted in v1 per arch §8; this seals the API seam, not a hostile sandbox.)
+ */
+const AMBIGUOUS_NAMES = [
+  'process', 'require', 'module', 'exports', 'Buffer', 'global',
+  '__dirname', '__filename', 'window', 'document', 'globalThis', 'fetch',
+  'XMLHttpRequest', 'WebSocket', 'navigator', 'location',
+  'history', 'localStorage', 'sessionStorage', 'electron',
+];
+
+const SCOPE_LOCK_PREFIX =
+  'const ' +
+  AMBIGUOUS_NAMES.join('= undefined, ') +
+  '= undefined;\n' +
+  // The capability surface itself is sealed: a cell cannot hot-swap the API
+  // it was granted.
+  'Object.freeze(__scope.api);\n' +
+  'Object.freeze(__scope.components);\n';
+
+/** Wrap a single AsyncFunction body in the capability-boundary preamble. */
+export function withScopeLock(body: string): string {
+  return SCOPE_LOCK_PREFIX + body;
+}
+
 export interface DocumentCell {
   lang: CellLanguage;
   source: string;
@@ -71,7 +100,7 @@ export function compileDocument(cells: DocumentCell[]): (scope: Record<string, u
   });
   const outs = cells.map((_, i) => '__out_' + i).join(', ');
   const body = parts.join('\n') + '\nreturn [' + outs + '];';
-  const fn = new AsyncFunction('React', '__scope', body);
+  const fn = new AsyncFunction('React', '__scope', withScopeLock(body));
   return (scope) => fn(scope.React, { api: scope.api, components: scope.components });
 }
 
@@ -85,7 +114,7 @@ export function compileCell(source: string, lang: CellLanguage): CompiledCell {
     jsxFragment: 'React.Fragment',
   }).code;
   const body = wrapLastExpression(js);
-  const fn = new AsyncFunction('React', '__scope', body);
+  const fn = new AsyncFunction('React', '__scope', withScopeLock(body));
   return (scope) => fn(scope.React, { api: scope.api, components: scope.components });
 }
 
