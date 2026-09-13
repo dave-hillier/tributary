@@ -91,6 +91,30 @@ describe('round-trip', () => {
     expect(wiki.id).toBe('notes/hello'); // derived from path (no frontmatter.id)
   });
 
+  it('canonicalizes setext headings but preserves cell bodies verbatim', () => {
+    const src = [
+      'Title',
+      '=====',
+      '',
+      '\u0060\u0060\u0060js',
+      'const x =  1  // deliberate spacing',
+      '\u0060\u0060\u0060',
+      '',
+      '\u0060\u0060\u0060tsx',
+      '  <div  className="x" />  ',
+      '\u0060\u0060\u0060',
+      '',
+    ].join('\n');
+    const doc = parseMarkdown(src, { path: 'x.md' });
+    const out = stringifyMarkdown(doc);
+    // prose is canonical: setext heading -> ATX
+    expect(out).toContain('# Title');
+    expect(out).not.toContain('=====');
+    // cell bodies are verbatim: internal spacing survives the round-trip
+    expect(out).toContain('const x =  1  // deliberate spacing');
+    expect(out).toContain('  <div  className="x" />  ');
+  });
+
   it('golden: canonical serialization is stable', () => {
     const doc = parseMarkdown('---\ntitle: T\n---\n\n# Hi\n\n[[a|A]]\n', { path: 'x.md' });
     expect(stringifyMarkdown(doc)).toBe('---\ntitle: T\n---\n\n# Hi\n\n[[a|A]]\n');

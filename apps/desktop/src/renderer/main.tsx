@@ -270,9 +270,13 @@ function App() {
       setDiff(await window.tributary.diff(id).catch(() => ''));
       const cells = collectCells(d);
       cellsRef.current = cells;
-      const results = await window.tributary
-        .evaluateDocument(d.id, cells.map((c) => ({ lang: c.lang, source: c.value as string })))
-        .catch(() => [] as CellResult[]);
+      // Plain docs skip the evaluate IPC round-trip entirely (finding 14).
+      const results =
+        cells.length === 0
+          ? []
+          : await window.tributary
+              .evaluateDocument(d.id, cells.map((c) => ({ lang: c.lang, source: c.value as string })))
+              .catch(() => [] as CellResult[]);
       const map = new Map<Cell, CellResult>();
       cells.forEach((c, i) => {
         const res = results[i];

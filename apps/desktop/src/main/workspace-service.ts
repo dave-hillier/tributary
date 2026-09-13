@@ -141,6 +141,9 @@ export class WorkspaceService {
   }
 
   async evaluateDocument(docId: string, cells: { lang: string; source: string }[]): Promise<CellResult[]> {
+    // Plain wiki docs (zero cells) must not construct a ReactiveHost or run an
+    // evaluation (finding 14).
+    if (cells.length === 0) return [];
     const host = new ReactiveHost(
       cells.map((c) => ({ lang: c.lang as 'js' | 'ts' | 'jsx' | 'tsx', source: c.source })),
       this.resolveOptions()
