@@ -2,6 +2,7 @@ import { transformSync } from 'esbuild';
 import { parse } from 'acorn';
 import type { CellLanguage } from './compiler.js';
 import { shimImports } from './compiler.js';
+import { resolveImports, type ResolveOptions } from './resolve.js';
 
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
 
@@ -47,66 +48,85 @@ export interface CompiledReactiveCell {
 }
 
 /**
- * Compile one cell so it shares a scope with others: top-level `const X = ...`
- * declarations are written to the shared `scope` object, references to other
- * cells' names resolve through `with (scope)`, and the final expression is
+ * Compile one cell so it shares a scope with others: top-level \`const X = ...\`
+ * declarations are written to the shared \`scope\` object, references to other
+ * cells' names resolve through \`with (scope)\`, and the final expression is
  * the cell's output.
+ *
+ * Imports are resolved (bundled) into a self-contained preamble that is hoisted
+ * OUTSIDE the \`with (scope)\` block so imported bindings stay per-cell and are
+ * never written back into the shared scope. A cell that cannot be compiled is
+ * returned as a cell whose \`run\` throws a descriptive error, so one bad cell
+ * does not fail the whole document.
  */
-export function compileReactiveCell(source: string, lang: CellLanguage): CompiledReactiveCell {
-  const js = transformSync(shimImports(source), {
-    loader: lang,
-    jsx: 'transform',
-    jsxFactory: 'React.createElement',
-    jsxFragment: 'React.Fragment',
-  }).code;
-
-  const refs = collectIdentifiers(js);
-  const provided: string[] = [];
-
-  let ast;
+export function compileReactiveCell(source: string, lang: CellLanguage, options: ResolveOptions = {}): CompiledReactiveCell {
   try {
-    ast = parse(js, { ecmaVersion: 'latest', sourceType: 'module' });
-  } catch {
-    ast = null;
-  }
+    const js = transformSync(shimImports(source), {
+      loader: lang,
+      jsx: 'transform',
+      jsxFactory: 'React.createElement',
+      jsxFragment: 'React.Fragment',
+    }).code;
+    const resolved = resolveImports(js, options);
+    if (resolved.unresolved) throw new Error('unresolved import');
 
-  let body: string;
-  if (!ast || ast.body.length === 0) {
-    body = 'with (scope) { return undefined; }';
-  } else {
-    let out = 'with (scope) {';
-    let cursor = 0;
-    const stmts = ast.body;
-    for (let idx = 0; idx < stmts.length; idx++) {
-      const stmt = stmts[idx]!;
-      out += js.slice(cursor, stmt.start);
-      if (stmt.type === 'VariableDeclaration') {
-        out += js.slice(stmt.start, stmt.end);
-        const names = stmt.declarations
-          .filter((d) => d.id.type === 'Identifier')
-          .map((d) => (d.id as any).name as string);
-        for (const n of names) {
-          provided.push(n);
-          refs.delete(n);
-          out += '\nscope.' + n + ' = ' + n + ';';
-        }
-      } else if (idx === stmts.length - 1 && stmt.type === 'ExpressionStatement') {
-        out += 'return (' + js.slice(stmt.expression.start, stmt.expression.end) + ');';
-      } else {
-        out += js.slice(stmt.start, stmt.end);
-      }
-      cursor = stmt.end;
+    const refs = collectIdentifiers(resolved.body);
+    const provided: string[] = [];
+
+    let ast;
+    try {
+      ast = parse(resolved.body, { ecmaVersion: 'latest', sourceType: 'module' });
+    } catch {
+      ast = null;
     }
-    out += '}';
-    body = out;
-  }
 
-  const fn = new AsyncFunction('scope', '__scope', 'React', body);
-  return {
-    provided,
-    refs,
-    run: (scope, context) => fn(scope, { api: context.api, components: context.components }, context.React),
-  };
+    let body: string;
+    if (!ast || ast.body.length === 0) {
+      body = 'with (scope) { return undefined; }';
+    } else {
+      let out = 'with (scope) {';
+      let cursor = 0;
+      const stmts = ast.body;
+      for (let idx = 0; idx < stmts.length; idx++) {
+        const stmt = stmts[idx]!;
+        out += resolved.body.slice(cursor, stmt.start);
+        if (stmt.type === 'VariableDeclaration') {
+          out += resolved.body.slice(stmt.start, stmt.end);
+          const names = stmt.declarations
+            .filter((d) => d.id.type === 'Identifier')
+            .map((d) => (d.id as any).name as string);
+          for (const n of names) {
+            provided.push(n);
+            refs.delete(n);
+            out += '\nscope.' + n + ' = ' + n + ';';
+          }
+        } else if (idx === stmts.length - 1 && stmt.type === 'ExpressionStatement') {
+          out += 'return (' + resolved.body.slice(stmt.expression.start, stmt.expression.end) + ');';
+        } else {
+          out += resolved.body.slice(stmt.start, stmt.end);
+        }
+        cursor = stmt.end;
+      }
+      out += '}';
+      body = out;
+    }
+
+    const fn = new AsyncFunction('scope', '__scope', 'React', resolved.preamble + '\n' + body);
+    return {
+      provided,
+      refs,
+      run: (scope, context) => fn(scope, { api: context.api, components: context.components }, context.React),
+    };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return {
+      provided: [],
+      refs: new Set(),
+      run: async () => {
+        throw new Error('Cell compile error: ' + msg);
+      },
+    };
+  }
 }
 
 export class ReactiveHost {
@@ -116,8 +136,11 @@ export class ReactiveHost {
   private reverse = new Map<number, number[]>();
   lastEvaluated: number[] = [];
 
-  constructor(private cells: ReactiveCell[]) {
-    this.compiled = cells.map((c) => compileReactiveCell(c.source, c.lang));
+  constructor(
+    private cells: ReactiveCell[],
+    private options: ResolveOptions = {}
+  ) {
+    this.compiled = cells.map((c) => compileReactiveCell(c.source, c.lang, this.options));
     this.buildReverse();
   }
 
@@ -165,7 +188,11 @@ export class ReactiveHost {
   }
 
   private async evaluateOne(i: number, context: ReactiveContext): Promise<void> {
-    this.outputs[i] = await this.compiled[i]!.run(this.scope, context);
+    try {
+      this.outputs[i] = await this.compiled[i]!.run(this.scope, context);
+    } catch (e) {
+      this.outputs[i] = e instanceof Error ? e : new Error(String(e));
+    }
   }
 
   async evaluate(context: ReactiveContext): Promise<unknown[]> {
@@ -182,7 +209,7 @@ export class ReactiveHost {
   async update(i: number, newSource: string, context: ReactiveContext): Promise<unknown[]> {
     const cell = this.cells[i]!;
     this.cells[i] = { lang: cell.lang, source: newSource };
-    this.compiled[i] = compileReactiveCell(newSource, cell.lang);
+    this.compiled[i] = compileReactiveCell(newSource, cell.lang, this.options);
     this.buildReverse();
     const affected = new Set<number>([i]);
     const stack = [i];

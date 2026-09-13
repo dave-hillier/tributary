@@ -7,3 +7,5 @@ export { compileCell, compileDocument, evaluateCell, type CellLanguage, type Com
 export { serializeCellOutput, type CellResult } from './serialize.js';
 
 export { ReactiveHost, compileReactiveCell, type ReactiveCell, type CompiledReactiveCell } from './reactive.js';
+
+export { resolveImports, type ResolveOptions } from './resolve.js';

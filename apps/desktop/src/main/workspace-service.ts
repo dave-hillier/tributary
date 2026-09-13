@@ -1,11 +1,12 @@
 import { mkdtempSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { Workspace, createDemoWorkspace, type CommitInfo } from '@tributary/workspace';
 import { SqliteIndex } from '@tributary/index';
 import { parseMarkdown, updateFrontmatter, replaceCellSource } from '@tributary/markdown';
-import { ReactiveHost, serializeCellOutput, type CellResult } from '@tributary/notebook';
+import { ReactiveHost, serializeCellOutput, type CellResult, type ResolveOptions } from '@tributary/notebook';
 import { createElement, Fragment } from 'react';
 import type { Document, DocumentId, NewWorkItem, WorkItem } from '@tributary/api';
 import { formatRef, parseRef, type Diagnostic } from '@tributary/ontology';
@@ -14,6 +15,9 @@ import { formatRef, parseRef, type Diagnostic } from '@tributary/ontology';
  * Shell-side workspace service: owns the open workspace and its derived index,
  * exposed to the renderer over IPC. Git remains the durable truth (arch §5.2).
  */
+/** The desktop app's own node_modules (host fallback for cell imports). */
+const APP_NODE_MODULES = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'node_modules');
+
 function collectCells(doc: Document): { lang: string; source: string }[] {
   const out: { lang: string; source: string }[] = [];
   const walk = (n: any): void => {
@@ -30,6 +34,19 @@ export class WorkspaceService {
   private hosts = new Map<string, ReactiveHost>();
   private cellContext() {
     return { React: { createElement, Fragment }, api: this.capabilities, components: {} };
+  }
+
+  /**
+   * Where cell imports resolve: relative specifiers against the workspace
+   * root, bare specifiers against the workspace's own node_modules and then
+   * the desktop app's (host) node_modules as a fallback.
+   */
+  private resolveOptions(): ResolveOptions {
+    const root = this.workspace?.ref.rootPath;
+    return {
+      resolveDir: root ?? process.cwd(),
+      nodePaths: root ? [join(root, 'node_modules'), APP_NODE_MODULES] : [APP_NODE_MODULES],
+    };
   }
   private capabilities = {
     workItems: () => this.listWorkItems(),
@@ -125,7 +142,8 @@ export class WorkspaceService {
 
   async evaluateDocument(docId: string, cells: { lang: string; source: string }[]): Promise<CellResult[]> {
     const host = new ReactiveHost(
-      cells.map((c) => ({ lang: c.lang as 'js' | 'ts' | 'jsx' | 'tsx', source: c.source }))
+      cells.map((c) => ({ lang: c.lang as 'js' | 'ts' | 'jsx' | 'tsx', source: c.source })),
+      this.resolveOptions()
     );
     this.hosts.set(docId, host);
     const values = await host.evaluate(this.cellContext());
@@ -144,7 +162,8 @@ export class WorkspaceService {
     let host = this.hosts.get(docId);
     if (!host) {
       host = new ReactiveHost(
-        collectCells(updatedDoc).map((c) => ({ lang: c.lang as 'js' | 'ts' | 'jsx' | 'tsx', source: c.source }))
+        collectCells(updatedDoc).map((c) => ({ lang: c.lang as 'js' | 'ts' | 'jsx' | 'tsx', source: c.source })),
+        this.resolveOptions()
       );
       this.hosts.set(docId, host);
       const values = await host.evaluate(this.cellContext());

@@ -3,11 +3,13 @@
 - **Scope:** originally Stages 0–1 (up to `5215935`); now tracked through the
   Stage 2/3 work and hardening committed up to `26e0f9c` (09-13).
 - **Status:** Stages 0/1/2/3 committed and green. Implemented:
-  findings 1, 2, 3, 5, 6, 7, 10 and the HTML-sanitisation work. Remaining open:
-  findings 8 (test breadth), 11 (cell module resolution) and the native Electron
-  *window* launch (finding 4 —
-  ABI now verified under Electron's bundled Node 20; the window probe needs a
-  desktop session, `pnpm --filter app-desktop smoke:window`).
+  findings 1, 2, 3, 5, 6, 7, 10, 12 and the HTML-sanitisation work, plus the
+  module-resolution core of finding 11. Remaining open: finding 8 (test
+  breadth), the component-rendering half of finding 11 (imported React
+  components still can't cross the IPC boundary to the renderer) and the native
+  Electron *window* launch (finding 4 — ABI now verified under Electron's
+  bundled Node 20; the window probe needs a desktop session,
+  `pnpm --filter app-desktop smoke:window`).
 
 This is an honest assessment of the work so far. The skeleton and the
 Git-as-truth discipline are sound (see "What holds up" below), but several core
@@ -193,6 +195,24 @@ specifiers against the workspace's installed dependencies at compile time
 keep `@tributary/api` injection for capabilities that must stay non-importable.
 Until then, cell-visible libraries are limited to what the host injects.
 
+**Implemented (module-resolution core):** a new
+`packages/runtime/notebook/src/resolve.ts` bundles a cell's non-capability
+imports with esbuild into a self-contained namespace and binds the imported
+locals off it, so a cell can `import` a bare package (e.g. `acorn`), a
+relative module, a default export, or a namespace — and use the result.
+Resolution paths (`resolveDir` + `nodePaths`) are threaded from the shell:
+the desktop `WorkspaceService` resolves relative specifiers against the
+workspace root and bare specifiers against the workspace's `node_modules`,
+falling back to the host app's. Covered by `test/resolve.test.ts`.
+
+**Remaining (not module resolution):** an imported *React component* (e.g.
+Replot's `BarY`) evaluates in the main process to a React element whose
+`type` is a function, and functions cannot cross the IPC/serialization
+boundary to the renderer (`serializeCellOutput` stringifies them). Rendering
+such a component end-to-end needs cell *evaluation* in the renderer (or a
+component-serialization scheme) — separate work with ADR-004 ("never in the
+renderer") implications, still open.
+
 ### 12. Medium — The capability-import shim only matches double-quoted specifiers
 
 `APP_IMPORT_RE` in `packages/runtime/notebook/src/compiler.ts` is
@@ -208,6 +228,14 @@ unhandled.
 **Disposition:** accept either quote style (and backticks), handle default and
 namespace forms, and route compile failures through the per-cell error path so
 one bad cell cannot fail the whole document.
+
+**Implemented:** `shimImports` now accepts single/double/backtick quotes and
+default + namespace forms (side-effect imports are dropped), and compile
+failures are routed per-cell: `compileReactiveCell` returns a cell whose
+`run` throws a descriptive error, `ReactiveHost.evaluate`/`update` catch a
+cell's error into that cell's output, and `compileDocument` isolates a bad
+cell into its own error slot instead of failing the whole document. Covered by
+`test/resolve.test.ts`.
 
 ### 13. Low — Stage 2's block registry was never built
 
