@@ -1,8 +1,9 @@
 import { StrictMode, Fragment, useEffect, useRef, useState } from 'react';
 import type { KeyboardEvent, MouseEvent } from 'react';
 import { createRoot } from 'react-dom/client';
-import { DocumentView, CellContext } from '@tributary/components';
-import type { CellResolver, CellResult } from '@tributary/components';
+import { DocumentView, CellContext, TransclusionContext } from '@tributary/components';
+import type { CellResolver, CellResult, TransclusionResolver } from '@tributary/components';
+import { findSection } from '@tributary/index';
 import CodeMirror from '@uiw/react-codemirror';
 import { markdown } from '@codemirror/lang-markdown';
 import type { Document, WorkItem, Cell } from '@tributary/api';
@@ -70,6 +71,48 @@ function titleOf(doc: Document): string {
 function kindLabel(doc: Document): string {
   if (doc.frontmatter.kind === 'work-item') return doc.frontmatter.status ?? 'work-item';
   return doc.frontmatter.kind ?? 'note';
+}
+
+/**
+ * Resolver backing `![[target]]` / `![[target#heading]]` transclusions.
+ * Resolves by id, path (with/without `.md`) and frontmatter aliases; heading
+ * embeds return a synthetic document whose root is exactly the section slice.
+ *
+ * Cycle + depth guards live in @tributary/components via the render chain, so
+ * this stays a pure lookup.
+ */
+function makeTransclusionResolver(docs: Document[]): TransclusionResolver {
+  const byId = new Map<string, Document>();
+  const byPath = new Map<string, Document>();
+  const byAlias = new Map<string, Document>();
+  for (const d of docs) {
+    byId.set(d.id, d);
+    byPath.set(d.path, d);
+    byPath.set(d.path.replace(/\.md$/, ''), d);
+    const aliases = d.frontmatter.aliases;
+    if (Array.isArray(aliases)) {
+      for (const a of aliases) {
+        if (typeof a === 'string') byAlias.set(a, d);
+      }
+    }
+  }
+  const resolveDoc = (target: string): Document | undefined =>
+    byId.get(target) ?? byPath.get(target) ?? byPath.get(target + '.md') ?? byAlias.get(target);
+  return {
+    resolve(target, heading) {
+      const doc = resolveDoc(target);
+      if (!doc || heading === undefined) return doc;
+      const section = findSection(doc, heading);
+      if (!section) return undefined;
+      return {
+        id: doc.id,
+        path: doc.path,
+        frontmatter: doc.frontmatter,
+        root: { type: 'root', children: section } as Document['root'],
+        source: doc.source,
+      };
+    },
+  };
 }
 
 /** Coarse relative time for the history list ("now", "2h", "yesterday"). */
@@ -562,7 +605,9 @@ function App() {
                   <div data-scroll>
                     <div data-doc={current.id} onClick={onDocClick}>
                       <CellContext.Provider value={cellResolver}>
-                        <DocumentView document={current} />
+                        <TransclusionContext.Provider value={makeTransclusionResolver(docs)}>
+                          <DocumentView document={current} />
+                        </TransclusionContext.Provider>
                       </CellContext.Provider>
                     </div>
                   </div>

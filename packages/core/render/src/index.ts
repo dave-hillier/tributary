@@ -37,11 +37,14 @@ export interface ComponentRegistry {
 }
 
 /**
- * Ambient context threaded through every component. Currently only carries the
- * source document; later stages may add capabilities here.
+ * Ambient context threaded through every component. Currently carries the
+ * source document and the chain of transcluded document ids leading here
+ * (used by the components layer to guard embedding depth and cycles).
  */
 export interface RenderContext {
   document: Document;
+  /** Ids of documents expanded to reach this node, outermost first. */
+  transclusionChain?: string[];
 }
 
 function childNodes(node: Node): Node[] {
@@ -101,13 +104,21 @@ function renderNode(
  * Build a renderer for a given component registry.
  *
  * `createDocumentRenderer(registry)` returns a function that renders a
- * `Document` (its mdast `root`) into a single React element.
+ * `Document` (its mdast `root`) into a single React element. The optional
+ * second argument seeds the render context — the transclusion embedding chain
+ * defaults to `[doc.id]`.
  */
 export function createDocumentRenderer(
   registry: ComponentRegistry,
-): (doc: Document) => ReactElement {
-  return function renderDocument(doc: Document): ReactElement {
-    const ctx: RenderContext = { document: doc };
+): (doc: Document, options?: { transclusionChain?: string[] }) => ReactElement {
+  return function renderDocument(
+    doc: Document,
+    options: { transclusionChain?: string[] } = {},
+  ): ReactElement {
+    const ctx: RenderContext = {
+      document: doc,
+      transclusionChain: options.transclusionChain ?? [doc.id],
+    };
     return renderNode(doc.root, ctx, registry) ?? createElement(Fragment, null);
   };
 }

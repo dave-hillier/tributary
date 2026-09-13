@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { parseMarkdown } from '@tributary/markdown';
 import type { Document } from '@tributary/api';
-import { buildIndex, collectTargets } from '../src/index.js';
+import { buildIndex, collectTargets, findSection, headingText } from '../src/index.js';
 
 function doc(id: string, path: string, source: string): Document {
   return parseMarkdown(source, { path });
@@ -51,5 +51,69 @@ describe('buildIndex', () => {
     expect([...b.backlinks]).toEqual([...a.backlinks]);
     expect(b.workItems).toEqual(a.workItems);
     expect(b.resolve('notes/hello')?.id).toBe(a.resolve('notes/hello')?.id);
+  });
+});
+
+describe('findSection (transclusion target#heading)', () => {
+  const source = [
+    '# Top',
+    '',
+    'intro',
+    '',
+    '## Alpha',
+    '',
+    'alpha body',
+    '',
+    '### Sub',
+    '',
+    'sub body',
+    '',
+    '## Beta',
+    '',
+    'beta body',
+    '',
+    '# End',
+    '',
+    'tail',
+  ].join('\n');
+  const d = doc('d', 'd.md', source + '\n');
+
+  it('flattens heading text (inline markup ignored)', () => {
+    const strong = doc('s', 's.md', '# Deploy *Status*\n');
+    const h = strong.root.children.find((n) => n.type === 'heading')!;
+    expect(headingText(h)).toBe('Deploy Status');
+  });
+
+  it('returns the heading plus siblings up to the next same-or-higher heading', () => {
+    const slice = findSection(d, 'Alpha')!;
+    const types = slice.map((n) => n.type);
+    expect(types).toEqual(['heading', 'paragraph', 'heading', 'paragraph']);
+    expect(slice[0]).toMatchObject({ depth: 2 });
+  });
+
+  it('stops a section at a HIGHER-level heading but includes deeper subsections', () => {
+    const slice = findSection(d, 'Beta')!;
+    const types = slice.map((n) => n.type);
+    expect(types).toEqual(['heading', 'paragraph']);
+  });
+
+  it('includes nested subsections within a section', () => {
+    const slice = findSection(d, 'Alpha')!;
+    expect(slice.map((n) => n.type)).toContain('heading'); // '### Sub' heading included
+    const sub = slice.find((n) => n.type === 'heading' && (n as { depth?: number }).depth === 3);
+    expect(sub).toBeDefined();
+  });
+
+  it('is case-insensitive and trims', () => {
+    expect(findSection(d, '  alpha ')).toBeDefined();
+    expect(findSection(d, 'ALPHA')).toBeDefined();
+  });
+
+  it('returns undefined for a missing heading', () => {
+    expect(findSection(d, 'Missing')).toBeUndefined();
+  });
+
+  it('does not match headings nested inside other blocks (top-level only)', () => {
+    expect(findSection(d, 'Top')).toBeDefined();
   });
 });

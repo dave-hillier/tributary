@@ -712,6 +712,26 @@ small { color: var(--muted); font-size: inherit; }
   margin-bottom: 6px;
 }
 
+/* resolved transclusion: the embedded document region */
+[data-doc] [data-transclusion-embed] {
+  border: 1px solid var(--rule);
+  border-left: 2px solid var(--accent);
+  background: var(--panel);
+  padding: 10px 12px;
+  margin: 0 0 0.9em;
+}
+[data-doc] [data-transclusion-embed] > :first-child { margin-top: 0; }
+[data-doc] [data-transclusion-embed] > :last-child { margin-bottom: 0; }
+
+/* transclusion failure: visible, safe, inline (§8) */
+[data-doc] [data-transclusion-error] {
+  border: 1px solid var(--danger, #b3261e);
+  background: var(--panel);
+  padding: 6px 10px;
+  margin: 0 0 0.9em;
+  font-size: 12px;
+}
+
 /* executable cells — semantic <figure>/<figcaption> */
 [data-doc] figure[data-cell] {
   margin: 0 0 0.9em;

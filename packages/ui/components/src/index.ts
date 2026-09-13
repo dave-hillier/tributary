@@ -199,13 +199,67 @@ const wikiLinkComponent: NodeComponent = ({ node }) => {
   );
 };
 
-const transclusionComponent: NodeComponent = ({ node }) => {
-  const t = node as Transclusion;
-  const label = t.heading ? `${t.target}#${t.heading}` : t.target;
+// --- Transclusion embedding (Stage 2) ------------------------------------------
+
+/**
+ * Resolves a transclusion reference to a renderable document. Supplied by the
+ * shell (which owns the workspace/index); components stay pure. For a heading
+ * embed the resolver may return a *synthetic* document whose root is exactly
+ * the heading's section slice.
+ */
+export interface TransclusionResolver {
+  resolve(target: string, heading?: string): Document | undefined;
+}
+
+export const TransclusionContext = createContext<TransclusionResolver | null>(null);
+
+/** Render-time guard: fail visibly instead of recursing forever (§8). */
+const MAX_EMBED_DEPTH = 12;
+
+function transclusionDiagnostic(message: string): ReactElement {
   return createElement(
     'div',
-    { 'data-transclusion': t.target, className: 'transclusion-placeholder' },
-    label,
+    { 'data-transclusion-error': '', className: 'transclusion-diagnostic' },
+    message,
+  );
+}
+
+const transclusionComponent: NodeComponent = ({ node, ctx }) => {
+  const t = node as Transclusion;
+  const resolver = useContext(TransclusionContext);
+  const chain = ctx?.transclusionChain ?? ['doc'];
+
+  const placeholder = (): ReactElement => {
+    const label = t.heading ? `${t.target}#${t.heading}` : t.target;
+    return createElement(
+      'div',
+      { 'data-transclusion': t.target, className: 'transclusion-placeholder' },
+      label,
+    );
+  };
+
+  // No resolver wired (bare DocumentView, headless tests, source view): the
+  // dialect node degrades to a placeholder, never to an error.
+  if (!resolver) return placeholder();
+
+  const target = resolver.resolve(t.target, t.heading);
+  if (!target) return placeholder();
+
+  if (chain.includes(target.id)) {
+    return transclusionDiagnostic(
+      `Circular transclusion: ${[...chain, target.id].join(' → ')}`,
+    );
+  }
+  if (chain.length >= MAX_EMBED_DEPTH) {
+    return transclusionDiagnostic(
+      `Transclusion depth limit reached (${MAX_EMBED_DEPTH})`,
+    );
+  }
+  const render = createDocumentRenderer(defaultRegistry);
+  return createElement(
+    'div',
+    { className: 'transclusion', 'data-transclusion-embed': target.path },
+    render(target, { transclusionChain: [...chain, target.id] }),
   );
 };
 

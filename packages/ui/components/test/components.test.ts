@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { renderToString } from 'react-dom/server';
 import { createElement } from 'react';
-import { DocumentView } from '@tributary/components';
+import { DocumentView, TransclusionContext } from '@tributary/components';
+import type { TransclusionResolver } from '@tributary/components';
 import type { Document } from '@tributary/api';
 
 function renderDoc(root: Document['root']): string {
@@ -193,5 +194,144 @@ describe('DocumentView', () => {
     expect(html).toContain('<img src="img.png" alt="alt text"/>');
     expect(html).toContain('<hr/>');
     expect(html).toContain('<table><tr><td>A</td><td>B</td></tr></table>');
+  });
+});
+describe('transclusion embedding (Stage 2)', () => {
+  const transclusion = (target: string, heading?: string) => ({
+    type: 'transclusion' as const,
+    target,
+    ...(heading ? { heading } : {}),
+    children: [],
+  });
+
+  function renderWithResolver(
+    root: Document['root'],
+    resolver: TransclusionResolver | null,
+    selfId = 'doc-1',
+  ): string {
+    const doc: Document = { id: selfId, path: 'index.md', frontmatter: {}, root };
+    const view = createElement(DocumentView, { document: doc });
+    if (!resolver) return renderToString(view);
+    return renderToString(
+      createElement(TransclusionContext.Provider, { value: resolver }, view),
+    );
+  }
+
+  const targetDoc: Document = {
+    id: 'notes/b',
+    path: 'notes/b.md',
+    frontmatter: { title: 'B' },
+    root: {
+      type: 'root',
+      children: [
+        { type: 'heading', depth: 1, children: [{ type: 'text', value: 'B Doc' }] },
+        { type: 'paragraph', children: [{ type: 'text', value: 'embedded body' }] },
+      ],
+    },
+  };
+
+  const resolver: TransclusionResolver = {
+    resolve: (target, heading) => (target === 'notes/b' ? targetDoc : undefined),
+  };
+
+  it('embeds the resolved document content instead of a placeholder', () => {
+    const html = renderWithResolver(
+      { type: 'root', children: [{ type: 'paragraph', children: [transclusion('notes/b')] }] },
+      resolver,
+    );
+    expect(html).toContain('embedded body');
+    expect(html).toContain('data-transclusion-embed="notes/b.md"');
+    expect(html).not.toContain('transclusion-placeholder');
+  });
+
+  it('embeds a heading section when a heading is requested', () => {
+    const sectionResolver: TransclusionResolver = {
+      resolve: (target, heading) => {
+        if (target !== 'notes/b' || heading !== 'Details') return undefined;
+        // Synthetic section document (root = the section slice).
+        return {
+          id: 'notes/b',
+          path: 'notes/b.md',
+          frontmatter: {},
+          root: {
+            type: 'root',
+            children: [
+              { type: 'heading', depth: 2, children: [{ type: 'text', value: 'Details' }] },
+              { type: 'paragraph', children: [{ type: 'text', value: 'only this section shows' }] },
+            ],
+          },
+        } as Document;
+      },
+    };
+    const html = renderWithResolver(
+      { type: 'root', children: [{ type: 'paragraph', children: [transclusion('notes/b', 'Details')] }] },
+      sectionResolver,
+    );
+    expect(html).toContain('only this section shows');
+  });
+
+  it('falls back to a placeholder when the target is unresolved', () => {
+    const html = renderWithResolver(
+      { type: 'root', children: [{ type: 'paragraph', children: [transclusion('missing')] }] },
+      resolver,
+    );
+    expect(html).toContain('transclusion-placeholder');
+    expect(html).toContain('missing');
+  });
+
+  it('remains a placeholder when no resolver is wired', () => {
+    const html = renderWithResolver(
+      { type: 'root', children: [{ type: 'paragraph', children: [transclusion('notes/b')] }] },
+      null,
+    );
+    expect(html).toContain('transclusion-placeholder');
+  });
+
+  it('fails visibly and safely on a circular transclusion (a -> b -> a)', () => {
+    const docA: Document = {
+      id: 'a', path: 'a.md', frontmatter: {},
+      root: { type: 'root', children: [{ type: 'paragraph', children: [transclusion('b')] }] },
+    };
+    const docB: Document = {
+      id: 'b', path: 'b.md', frontmatter: {},
+      root: { type: 'root', children: [{ type: 'paragraph', children: [transclusion('a')] }] },
+    };
+    const cyclic: TransclusionResolver = {
+      resolve: (target) => (target === 'a' ? docA : docB),
+    };
+    const html = renderWithResolver(
+      { type: 'root', children: [{ type: 'paragraph', children: [transclusion('a')] }] },
+      cyclic,
+      'self',
+    );
+    expect(html).toContain('Circular transclusion');
+    expect(html).toContain('data-transclusion-error');
+  });
+
+  it('fails visibly at the embed depth limit instead of recursing forever', () => {
+    const n = 16; // > MAX_EMBED_DEPTH (12)
+    const chain = new Map<string, Document>();
+    for (let i = 0; i < n; i++) {
+      const id = 'd' + i;
+      chain.set(id, {
+        id,
+        path: id + '.md',
+        frontmatter: {},
+        root: {
+          type: 'root',
+          children: [
+            { type: 'paragraph', children: [transclusion('d' + (i + 1))] },
+          ],
+        },
+      });
+    }
+    const deep: TransclusionResolver = { resolve: (target) => chain.get(target) };
+    const html = renderWithResolver(
+      { type: 'root', children: [{ type: 'paragraph', children: [transclusion('d0')] }] },
+      deep,
+      'self',
+    );
+    expect(html).toContain('Transclusion depth limit reached');
+    expect(html).toContain('data-transclusion-error');
   });
 });
