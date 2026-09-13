@@ -21,10 +21,11 @@ serialized by `remark-stringify` with custom handlers. The extensions are:
    `yaml` package into `DocumentFrontmatter` (open-ended, known keys typed).
 2. **Wiki links** — `[[target]]` and `[[target|alias]]` → `wikiLink` node.
 3. **Transclusion** — `![[target]]` and `![[target#heading]]` → `transclusion` node.
-4. **Executable cells** — a fenced block marked as a cell (language in
-   `js`/`ts`/`jsx`/`tsx`) → a single `cell` node carrying `lang`. This
-   **supersedes** the earlier `replotBlock`/`cellBlock` split — see ADR-004.
-   Every unmarked fence stays an ordinary source-only `code` node.
+4. **Executable cells** — a fence whose language is `js`/`ts`/`jsx`/`tsx` is a
+   single `cell` node carrying `lang`, **by default**; a `source` meta opts out
+   to a source-only `code` node. This **supersedes** the earlier
+   `replotBlock`/`cellBlock` split — see ADR-004. Non-cell languages and
+   unlabelled fences stay source-only `code`.
 
 The custom nodes are declared and registered into mdast's content maps in
 `@tributary/api` (single source of truth), so parser and renderer share one

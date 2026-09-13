@@ -1,6 +1,6 @@
 # ADR-004 — Executable cell model: TSX-native
 
-- **Status:** Proposed (supersedes the `replotBlock`/`cellBlock` split in ADR-001)
+- **Status:** Accepted (supersedes the `replotBlock`/`cellBlock` split in ADR-001)
 - **Date:** 2026-09-12
 - **Source:** architecture §4.3 (Block semantics), §6 (Notebook and rendered-block execution)
 
@@ -14,9 +14,10 @@ rendered output.
 
 ## Decision
 
-- **Fenced blocks are notebook cells.** `js`, `ts`, `jsx`, `tsx` are
-  variants of a single cell model (a `cell` node carrying `lang`); later
-  languages (`sql`, `python`, `shell`) slot into the same model.
+- **Fenced blocks are notebook cells, by default.** `js`, `ts`, `jsx`, `tsx`
+  fences are `cell` nodes (one model carrying `lang`); a `source` meta opts out
+  to a static `code` node; later languages (`sql`, `python`, `shell`) slot into
+  the same model.
 - **TSX is the native rich-output language.** Replot is a React component from
   `@tributary/components`, not a block type. Anything visual is whatever the
   cell evaluates to.
@@ -33,20 +34,21 @@ rendered output.
   `@tributary/components` (stable component API) and `@tributary/api`
   (capabilities: `workspace`, `git`, `query`).
 
-## Open questions
+## Resolved decisions
 
-1. **Executable marker.** ADR-001 says "execution is never inferred from the
-   language" (bare fences are source-only; `cell=` opts in). This ADR's examples
-   use bare `ts`/`tsx` fences as cells. The two are in tension. Options: (a)
-   keep an explicit marker (safe, portable, but less ergonomic); (b) make
-   `js/ts/jsx/tsx` fences cells by default with an explicit `source` opt-out
-   (ergonomic, but a code snippet in a note would execute — a portability/safety
-   surprise). **Recommendation:** keep execution explicit via a single uniform
-   marker, and defer "fences are cells by default" to a workspace-level policy
-   (per §12 trust posture). Needs a call.
-2. **Trust posture.** "Workspaces are trusted → permissive initially" relaxes §8.
-   The `@tributary/api` capability surface (`workspace`/`git`/`query`) is
-   permissive in v1; sandboxing lands in Stage 7.
+1. **Executable marker:** a fence whose language is `js`/`ts`/`jsx`/`tsx` is
+   a **cell by default** — it joins the reactive graph and runs on demand (run
+   cell / run all / input change), never automatically on open. A `source` meta
+   opts out to a static `code` node. Non-cell languages and unlabelled fences
+   stay static. This reverses the earlier "never infer execution from language"
+   rule.
+2. **Trust posture:** the `@tributary/api` capability surface
+   (`workspace`/`git`/`query`) is **permissive in v1** (workspaces are
+   trusted, single-user and local), but cells execute in a **worker with a
+   minimal scope** and reach the app only through the injected capability object
+   — no direct main-process or raw-filesystem access. Sandboxing (permissions,
+   allowlists, audit) is deferred to Stage 7 behind the unchanged
+   `WorkspaceCapabilities`/`NotebookHost` boundary.
 
 ## Consequences
 

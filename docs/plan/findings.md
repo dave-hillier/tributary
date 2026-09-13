@@ -137,10 +137,11 @@ cell compilation, and move dependency extraction onto the compiled AST (Stage 3)
 3. **Concurrency for v1:** base-blob + three-way merge now vs later (finding 3).
 4. **Native SQLite in Electron:** `@electron/rebuild` vs worker process
    (finding 4).
-5. **Executable-cell marker:** explicit marker vs inferred-from-language
-   (ADR-004, open question 1).
-6. **Cell trust posture:** permissive `@tributary/api` capabilities in v1 vs
-   §8 sandboxing now (ADR-004, open question 2).
+5. ~~**Executable-cell marker**~~ — **resolved**: cell-by-default with a
+   `source` opt-out and on-demand execution (ADR-004).
+6. ~~**Cell trust posture**~~ — **resolved**: permissive `@tributary/api`
+   capabilities behind a worker boundary; sandboxing deferred to Stage 7
+   (ADR-004).
 
 ## What holds up
 

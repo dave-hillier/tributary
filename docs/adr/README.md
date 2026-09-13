@@ -10,4 +10,4 @@ authoritative for *why* each decision is shaped this way.
 | [ADR-001](./0001-markdown-dialect.md) | Markdown dialect | Accepted |
 | [ADR-002](./0002-notebook-runtime.md) | Notebook runtime | Accepted |
 | [ADR-003](./0003-local-first-sync-checkpoint.md) | Local-first sync/checkpoint | Accepted |
-| [ADR-004](./0004-executable-cell-model-tsx-native.md) | Executable cell model: TSX-native | Proposed |
+| [ADR-004](./0004-executable-cell-model-tsx-native.md) | Executable cell model: TSX-native | Accepted |
