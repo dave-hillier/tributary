@@ -62,6 +62,10 @@ trees. `apps/desktop` is created at Stage 0.4 and does not exist yet.
 - Shell-flavoured logic (IPC wiring, Electron lifecycle, SQLite native binding)
   lives only in `app-desktop`.
 
+**Not yet built:** the app component API this table credits `components` with
+(`Replot`, `WorkItem`, `Assignee`) does not exist — see finding 11 in
+[`findings.md`](./findings.md).
+
 **Cells (ADR-004):** executable fenced blocks are a single `cell` node with
 `lang` in {js,ts,jsx,tsx}. Cells are compiled with esbuild in a worker/process
 and may `import` from `@tributary/components` (component API) and

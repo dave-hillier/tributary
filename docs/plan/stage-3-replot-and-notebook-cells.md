@@ -6,8 +6,8 @@ authoring — fenced blocks are notebook cells, and TSX is the native language
 for rich rendered output.
 **Status:** ✅ complete — cells compile and run end-to-end (esbuild+acorn),
 edit reactively with per-dependant invalidation, and persist back into the
-`.md`; suite green at `575549b` (09-13). The ADR-004 capability boundary is
-enforced (`0bb6c94`): cells run behind a scope lock that denies ambient runtime
+`.md`; suite green at `e101911` (09-13). The ADR-004 capability boundary is
+enforced (`57fe30b`): cells run behind a scope lock that denies ambient runtime
 powers and freezes the granted `api`/`components` surface. Cells execute in the
 app main process (compiled/evaluated there, results serialised to the
 renderer); full separate-process isolation remains a Stage 7 hardening item —
@@ -111,9 +111,13 @@ Markdown
 
 - [x] A cell defines data and a downstream `tsx` cell renders it reactively.
 - [x] Editing an upstream cell recomputes only dependants (stale async disposed).
-- [x] Plain wiki docs incur **no notebook runtime cost**.
-- [x] A `tsx` cell renders an app component (`Replot`, `WorkItem`) from the
-      final expression with no `display()` call.
+- [~] Plain wiki docs incur **no notebook runtime cost** — no cells means no
+      compilation, but the host is still constructed and an IPC evaluate still
+      runs for every document (finding 14).
+- [ ] A `tsx` cell renders an app component (`Replot`, `WorkItem`) from the
+      final expression with no `display()` call — **not met**: the component API
+      does not exist and `components: {}` is injected (finding 11). A `tsx` cell
+      does render its final expression as React with no `display()` call.
 - [x] Execution stays behind `NotebookHost` + the capability boundary.
 
 **Computational documents, still `.md` — TSX lives inside cells, never at the

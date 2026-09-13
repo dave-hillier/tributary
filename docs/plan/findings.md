@@ -1,8 +1,8 @@
 # Critical Review — Findings & Risks
 
-- **Scope:** originally Stages 0–1 (up to `0c933ef`); now tracked through the
-  Stage 2/3 work and hardening committed up to `1fde0e0` (09-13).
-- **Status:** Stages 0/1/2/3 committed and green (103 tests). Implemented:
+- **Scope:** originally Stages 0–1 (up to `5215935`); now tracked through the
+  Stage 2/3 work and hardening committed up to `26e0f9c` (09-13).
+- **Status:** Stages 0/1/2/3 committed and green. Implemented:
   findings 1, 2, 3, 5, 6, 7, 10 and the HTML-sanitisation work. Remaining open:
   finding 8 (test breadth) and the native Electron *window* launch (finding 4 —
   ABI now verified under Electron's bundled Node 20; the window probe needs a
@@ -32,7 +32,7 @@ losing source formatting important to Git diffs." We did not meet that: we
 **Resolved:** hybrid — preserve **cell bodies and frontmatter raw text**
 byte-for-byte, serialize **prose canonically** (stable). Full source-preservation
 of prose is out of scope for v1. See ADR-001 (round-trip fidelity). **Implemented:**
-raw frontmatter preservation + `updateFrontmatter` (`bd0e7a7`); prose stays
+raw frontmatter preservation + `updateFrontmatter` (`4e553fc`); prose stays
 canonical. The inline-parser holes (finding 6) remain.
 
 ### 2. Critical — Stable IDs are path-derived, not assigned
@@ -46,8 +46,10 @@ create/import") is not done — we only *detect* duplicates.
 **Resolved:** assign a generated id on first create/import and persist it into
 `frontmatter.id`; backfill id-less existing docs on first edit/save (not on open,
 to avoid surprise writes); path-derived id is a read-only fallback. **Implemented:**
-`createWorkItem` assigns + persists a UUID (`c3a3ca6`). Backfill of id-less docs on
-first save still pending.
+`createWorkItem` assigns + persists a UUID (`b656d0f`), and `Workspace.save()`
+backfills an id-less document's current id into its frontmatter (`64e021b`,
+covered by a workspace test). Note the assignment policy lives in the shell's
+`WorkspaceService`, not in a core package.
 
 ### 3. High — No save-time concurrency safety
 
@@ -59,8 +61,8 @@ gap between this and a real Git-backed editor.
 **Resolved:** base-blob optimistic concurrency **now** — track the base blob SHA
 per open doc and refuse to clobber a stale base (surface the conflict). Line-based
 three-way merge is the immediate follow-up; interactive merge UI later.
-**Implemented:** stale-base guard (`69d8aaa`); three-way merge via `git merge-file`
-on a stale base (`702416a`); interactive merge UI still later.
+**Implemented:** stale-base guard (`d323ebb`); three-way merge via `git merge-file`
+on a stale base (`a3be174`); interactive merge UI still later.
 
 ### 4. High — Electron path unverified; native binding ABI mismatch
 
@@ -90,7 +92,7 @@ Remaining: run `smoke:window` once on a desktop to close the loop.
 every file) to refresh the index, and `save()` commits even when nothing
 changed. Fine for the 5-file demo; not for a real repo.
 
-**Implemented:** per-doc re-parse + no-op commit skip (`69d8aaa`).
+**Implemented:** per-doc re-parse + no-op commit skip (`d323ebb`).
 
 ### 6. Medium — Inline parser is regex-based with known holes; positions dropped
 
@@ -102,7 +104,7 @@ position before comparison.
 
 **Disposition:** move to a micromark extension for the inline syntax and carry
 position onto custom nodes; add adversarial-input tests.
-**Implemented** (`d3ecb32`): a real micromark syntax + mdast-util-from-markdown
+**Implemented** (`11b8bcc`): a real micromark syntax + mdast-util-from-markdown
 extension parses `[[…]]`/`![[…]]` inline with positions spanning the markers;
 handles pipes (alias after first `|`), escapes, line-end unclosed links,
 image-vs-transclusion disambiguation, and non-empty content. 17 adversarial
@@ -117,7 +119,7 @@ but `resolve()` maps back to the same in-memory `this.docs` array, so the
 **Disposition:** decide what SQLite owns (links + FTS + work-item projection is
 fine; document resolution can stay in-memory but should be explicit), and drop
 the redundant table or use it for the projection.
-**Implemented** (`118af6d`): SQLite owns links/backlinks, FTS5 and the work-item
+**Implemented** (`47a7cbb`): SQLite owns links/backlinks, FTS5 and the work-item
 projection (`work_items` table); in-memory id/path maps own resolution; the
 redundant `documents` table is gone; WAL is only requested for file-backed
 indexes. Contract tests cover rename-stable identity and projection rebuilds.
@@ -152,10 +154,70 @@ ADR-004 collapses `replotBlock`/`cellBlock` into a single `cell` node, with
 `@tributary/api`, `markdown`, `render`, `components` and the demo
 fixtures; `js`/`ts`/`jsx`/`tsx` fences are cells by default with a
 `source` opt-out. **Implemented:** esbuild+acorn compiler and dependency
-extraction on the compiled AST (`e99029d`, `71e1d02`), cells executing
+extraction on the compiled AST (`65ecd61`, `789217e`), cells executing
 end-to-end with per-cell editing and granular reactive invalidation
-(`f5138b4`–`63271c6`). Execution is in-process for v1; the ADR-004
+(`78be5b3`–`5d23844`). Execution is in-process for v1; the ADR-004
 worker/process boundary is not yet enforced.
+
+### 11. High — The app component API (`Replot`, `WorkItem`, `Assignee`) does not exist
+
+`Replot` appears nowhere in the source tree. `@tributary/components` exports
+only `TransclusionContext`, `CellContext`, `defaultRegistry`, `DocumentView`
+and the `CellResult` type — no component API — and the shell injects
+`components: {}` into every cell scope (`apps/desktop/src/main/workspace-service.ts`).
+So a cell writing `import { Replot } from "@tributary/components"` binds
+`undefined`. This contradicts four documents that assume it exists:
+Stage 0 §0.3 ("one declarative `replot` block renders from a value/spec"),
+Stage 3 §3.4 and its exit criterion ("a `tsx` cell renders an app component
+(`Replot`, `WorkItem`) from the final expression"), and
+`package-boundaries.md` ("Replot bridge", "app component API
+(Replot/WorkItem/Assignee) for cells").
+
+**Disposition:** either build the component API (a `Replot` that consumes a
+value/spec without owning the DOM, §6.1) or strike it from the plan and the
+boundaries doc. Until then the affected exit criteria are not met — they are
+unchecked above. The generic cell path (`tsx` → `ReactElement` → React) does
+work and is tested; only the *named app components* are missing.
+
+### 12. Medium — The capability-import shim only matches double-quoted specifiers
+
+`APP_IMPORT_RE` in `packages/runtime/notebook/src/compiler.ts` is
+`/import\s*\{([^}]*)\}\s*from\s*"@tributary\/(api|components)"\s*;?/g` —
+double quotes only. A cell written `import { workItems } from '@tributary/api'`
+(single quotes, the prevailing style everywhere else in this repo) is left
+unshimmed and reaches `new AsyncFunction` as a real `import` statement, throwing
+`SyntaxError: Cannot use import statement outside a module` out of
+`compileDocument` rather than surfacing as a per-cell error. Default and
+namespace imports (`import api from`, `import * as api from`) are likewise
+unhandled.
+
+**Disposition:** accept either quote style (and backticks), handle default and
+namespace forms, and route compile failures through the per-cell error path so
+one bad cell cannot fail the whole document.
+
+### 13. Low — Stage 2's block registry was never built
+
+Stage 2 §2.2 calls for "a deliberately small registry of safe declarative
+blocks: callout, table, query block". None exists: `callout` and `query` appear
+nowhere in `render` or `components`. The stage status line is honest about it
+("the block registry adds no new native blocks"), but the work item is still
+listed as if delivered.
+
+**Disposition:** the stage's *exit criteria* never required these blocks, so
+Stage 2 stands; strike §2.2 or move it to a later stage.
+
+### 14. Low — Plain documents still pay for the notebook host
+
+Stage 3's exit criterion "plain wiki docs incur no notebook runtime cost" is
+overstated. `@tributary/notebook` (and esbuild with it) is a static import of
+the shell service, and opening *any* document runs the same path: the renderer
+always calls `evaluateDocument`, which constructs a `ReactiveHost` and awaits an
+IPC round trip even when the document has zero cells. No cells means no
+compilation, which is the substance of the claim, but there is no lazy boundary
+and no test either way.
+
+**Disposition:** skip the IPC call and the host when a document has no cells;
+add a test asserting it.
 
 ## Decisions
 

@@ -5,7 +5,7 @@
 repository, browse/edit/autosave/checkpoint Markdown knowledge and Markdown-
 backed work items, and rebuild all derived state locally.
 **Status:** ✅ complete — exit criteria pass against real temporary Git repos
-and the desktop git round-trip e2e at `575549b` (09-13).
+and the desktop git round-trip e2e at `e101911` (09-13).
 
 ## Goal
 
@@ -62,8 +62,8 @@ list/board views, and close the edit → autosave → checkpoint → history loo
 ## Known gaps
 
 The gaps flagged during review (findings 2, 3, 5) are now implemented: stable-ID
-assignment + backfill on save (`c3a3ca6`, `9982d85`), stale-base guard +
-three-way merge on divergent same-file edits (`69d8aaa`, `702416a`), and per-doc
-invalidation with no-op-commit skip (`69d8aaa`). Open items remain in
+assignment + backfill on save (`b656d0f`, `64e021b`), stale-base guard +
+three-way merge on divergent same-file edits (`d323ebb`, `a3be174`), and per-doc
+invalidation with no-op-commit skip (`d323ebb`). Open items remain in
 [`findings.md`](./findings.md) — chiefly the inline parser rewrite (finding 6)
 and the SQLite hybrid (finding 7).

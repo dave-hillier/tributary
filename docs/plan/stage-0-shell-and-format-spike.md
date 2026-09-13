@@ -3,7 +3,7 @@
 **Source:** architecture §10 "Slice 0" and §14 "Immediate next steps".
 **Outcome:** Prove the local desktop boundary and the core content/runtime bets
 with one repository and no multi-user infrastructure.
-**Status:** ✅ complete — exit criteria pass and the suite is green at `575549b`
+**Status:** ✅ complete — exit criteria pass and the suite is green at `e101911`
 (09-13). One runtime caveat remains: native Electron window launch is only proven
 headlessly; an `@electron/rebuild` + smoke pass is pending (see [`findings.md`](./findings.md)).
 
@@ -61,6 +61,9 @@ fixture tree.
 ## Exit criteria
 
 - [x] A sample repo renders end-to-end in the Electron shell.
+- [ ] One static `replot` block renders from a value/spec — **not met**: no
+      `Replot` component exists (finding 11). Cells render arbitrary React;
+      the named app component does not exist yet.
 - [x] Unknown blocks degrade to code fences without corrupting the document.
 - [x] Parser round-trip preserves Git-diff-relevant formatting (golden tests).
 - [x] `@tributary/markdown` builds/tests with no Electron dependency.

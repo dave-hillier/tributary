@@ -92,14 +92,18 @@ are written as their decisions are settled.
 
 ## Status
 
-Verified against the green suite (103 tests) as of `1fde0e0` (09-13):
+Verified against the green suite as of `26e0f9c` (09-13):
 
-- **Stages 0, 1, 2 and 3 are complete** (exit criteria checked in their docs).
+- **Stages 0, 1 and 2 are complete**; **Stage 3 is substantially complete** —
+  cells compile, run, invalidate and persist, but the named app component API
+  (`Replot`, `WorkItem`) does not exist, so two exit criteria are unmet
+  (finding 11).
 - **Stage 4 (offline jobs + generated reports) is deferred by decision** —
   `@tributary/jobs` remains an empty stub; revisit before starting it.
 - Findings 6 (inline parser) and 7 (SQLite ownership) are resolved; the HTML
   render path is hardened (arch §8). The Electron ABI is verified under
   Electron's bundled Node (finding 4); the window probe (`smoke:window`)
-  needs a desktop session. Test breadth (finding 8) remains open.
+  needs a desktop session. Open: test breadth (8), the missing component API
+  (11), the quote-sensitive capability-import shim (12).
 
 Remaining gaps are tracked in [`findings.md`](./findings.md).
