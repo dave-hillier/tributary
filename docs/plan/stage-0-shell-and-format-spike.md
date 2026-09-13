@@ -10,9 +10,8 @@ headlessly; an `@electron/rebuild` + smoke pass is pending (see [`findings.md`](
 ## Goal
 
 Stand up the monorepo scaffold, define the v0 Markdown dialect and parse it to
-a typed AST that round-trips, render ordinary Markdown + one static Replot
-block in React under Electron, and run the NotebookHost runtime spike. Resolve
-the runtime choice with ADR-002.
+a typed AST that round-trips, render ordinary Markdown in React under Electron,
+and run the NotebookHost runtime spike. Resolve the runtime choice with ADR-002.
 
 ## Work breakdown
 
@@ -30,10 +29,13 @@ the runtime choice with ADR-002.
 - Unknown/typed-block degradation: a renderer that does not know a block shows
   its source as a fenced code block; nothing corrupts (arch §4.1 portability).
 
-### 0.3 React rendering + one static Replot block (`@tributary/render`, `components`)
+### 0.3 React rendering (`@tributary/render`, `components`)
 - AST → React component registry.
-- Ordinary Markdown + wiki links render; one declarative `replot` block renders
-  from a value/spec (React remains sole DOM owner — §6.1).
+- Ordinary Markdown + wiki links render.
+- ~~One declarative `replot` block renders from a value/spec.~~ **Struck:**
+  Replot is an ordinary React library imported by a cell, not a block type or a
+  first-party component (finding 11). Its marks are JSX, so React remains sole
+  DOM owner (§6.1) without any bridge here.
 
 ### 0.4 Electron shell & typed boundary (`app-desktop`)
 - Electron renders the React surface; domain packages imported, not forked.
@@ -53,17 +55,14 @@ the runtime choice with ADR-002.
 ## Demo fixture
 
 A sample repository under `docs/examples/slice-0/`:
-`index.md`, one wiki doc, one work item, one `replot` block, one `js cell`
-fence rendered as source-only until Stage 3. This is the Stage 0 slice of
+`index.md`, one wiki doc, one work item, one `js cell` fence rendered as
+source-only until Stage 3. This is the Stage 0 slice of
 the canonical demo workspace (arch §14.4); later stages extend the same
 fixture tree.
 
 ## Exit criteria
 
 - [x] A sample repo renders end-to-end in the Electron shell.
-- [ ] One static `replot` block renders from a value/spec — **not met**: no
-      `Replot` component exists (finding 11). Cells render arbitrary React;
-      the named app component does not exist yet.
 - [x] Unknown blocks degrade to code fences without corrupting the document.
 - [x] Parser round-trip preserves Git-diff-relevant formatting (golden tests).
 - [x] `@tributary/markdown` builds/tests with no Electron dependency.

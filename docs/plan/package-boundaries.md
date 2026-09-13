@@ -28,7 +28,7 @@ tributary/
     │   ├── notebook/         # NotebookHost abstraction + runtime adapter
     │   └── jobs/             # offline job/agent workers over isolated worktrees
     └── ui/
-        └── components/       # React block registry, work-item views, Replot bridge
+        └── components/       # React block registry, work-item views, cell output
 ```
 
 Both `packages/*` and `apps/*` are pnpm workspace members from the scaffold,
@@ -46,7 +46,7 @@ trees. `apps/desktop` is created at Stage 0.4 and does not exist yet.
 | `@tributary/index` | SQLite + FTS5 derived projections (§5.3)                        | `api`                            | never     |
 | `@tributary/notebook`| NotebookHost, cell compiler (esbuild), dependency graph, invalidation (§6, ADR-004) | `api`, `markdown` | never |
 | `@tributary/jobs`  | Revision-pinned jobs in isolated worktrees/workers (§5.5, §7)   | `workspace`, `index`, `markdown` | never     |
-| `@tributary/components` | React block registry, work-item views, app component API (Replot/WorkItem/Assignee) for cells | `render`, `notebook` | no (React only) |
+| `@tributary/components` | React block registry, work-item views, document/cell rendering | `render`, `notebook` | no (React only) |
 | `app-desktop` (apps/desktop) | Electron shell, IPC/typed API over local workspace service (§5.1, §5.2) | all core + components | yes |
 
 ## Dependency rules
@@ -62,9 +62,10 @@ trees. `apps/desktop` is created at Stage 0.4 and does not exist yet.
 - Shell-flavoured logic (IPC wiring, Electron lifecycle, SQLite native binding)
   lives only in `app-desktop`.
 
-**Not yet built:** the app component API this table credits `components` with
-(`Replot`, `WorkItem`, `Assignee`) does not exist — see finding 11 in
-[`findings.md`](./findings.md).
+**Struck:** the "Replot bridge" / app component API (`Replot`, `WorkItem`,
+`Assignee`) earlier drafts credited `components` with is not a requirement —
+Replot is an ordinary React library a cell imports. What is missing is module
+resolution for cell imports; see finding 11 in [`findings.md`](./findings.md).
 
 **Cells (ADR-004):** executable fenced blocks are a single `cell` node with
 `lang` in {js,ts,jsx,tsx}. Cells are compiled with esbuild in a worker/process

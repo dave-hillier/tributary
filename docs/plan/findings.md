@@ -159,25 +159,38 @@ end-to-end with per-cell editing and granular reactive invalidation
 (`78be5b3`–`5d23844`). Execution is in-process for v1; the ADR-004
 worker/process boundary is not yet enforced.
 
-### 11. High — The app component API (`Replot`, `WorkItem`, `Assignee`) does not exist
+### 11. High — Cells cannot import third-party modules
 
-`Replot` appears nowhere in the source tree. `@tributary/components` exports
-only `TransclusionContext`, `CellContext`, `defaultRegistry`, `DocumentView`
-and the `CellResult` type — no component API — and the shell injects
-`components: {}` into every cell scope (`apps/desktop/src/main/workspace-service.ts`).
-So a cell writing `import { Replot } from "@tributary/components"` binds
-`undefined`. This contradicts four documents that assume it exists:
-Stage 0 §0.3 ("one declarative `replot` block renders from a value/spec"),
-Stage 3 §3.4 and its exit criterion ("a `tsx` cell renders an app component
-(`Replot`, `WorkItem`) from the final expression"), and
-`package-boundaries.md` ("Replot bridge", "app component API
-(Replot/WorkItem/Assignee) for cells").
+`shimImports` rewrites exactly two specifiers — `@tributary/api` and
+`@tributary/components` — into destructuring from an injected `__scope`. Every
+other `import` survives into `new AsyncFunction` and throws
+`SyntaxError: Cannot use import statement outside a module`, so a cell cannot
+import *any* library:
 
-**Disposition:** either build the component API (a `Replot` that consumes a
-value/spec without owning the DOM, §6.1) or strike it from the plan and the
-boundaries doc. Until then the affected exit criteria are not met — they are
-unchecked above. The generic cell path (`tsx` → `ReactElement` → React) does
-work and is tested; only the *named app components* are missing.
+```tsx
+import { BarY } from "replot"   // SyntaxError out of compileDocument
+```
+
+Replot is not a first-party concern. It is an ordinary React library
+([dave-hillier/replot](https://github.com/dave-hillier/replot), a React port of
+Observable Plot whose marks are real JSX), imported into a cell like any other
+package. Its marks being React elements is why the architecture's "React remains
+the sole DOM owner" (§6.1) needs no enforcement here — that is a property of the
+library, not a bridge Tributary builds.
+
+So this is the substantive gap, and it retires the "Replot bridge" / "app
+component API (`Replot`/`WorkItem`/`Assignee`)" framing that Stage 0 §0.3,
+Stage 3 §3.4 and `package-boundaries.md` carried: there is nothing first-party
+to build, and the architecture's `replot source=x` dialect fence was already
+superseded by the single `cell` node (finding 10). A `tsx` cell rendering a
+React component from its final expression works today and is tested; what is
+missing is the ability to *get* a component from a package.
+
+**Disposition:** give cells a real module-resolution story — resolve bare
+specifiers against the workspace's installed dependencies at compile time
+(esbuild already runs, so bundling per cell or an import map are both open), and
+keep `@tributary/api` injection for capabilities that must stay non-importable.
+Until then, cell-visible libraries are limited to what the host injects.
 
 ### 12. Medium — The capability-import shim only matches double-quoted specifiers
 

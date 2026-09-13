@@ -47,7 +47,7 @@ horizontal subsystems.
 | 0     | Shell + format/runtime spike                    | Local desktop boundary proven; a sample repo renders; runtime spike decision recorded.       |
 | 1     | Git-backed workspace: wiki + work items         | First usable offline product: edit/autosave/checkpoint Markdown docs & work items, index.    |
 | 2     | Transclusion + rich blocks                      | Documents become composable; index.md = links + embedded docs.                               |
-| 3     | Replot + notebook-like reactive cells           | Computational documents while staying Markdown-first.                                       |
+| 3     | Notebook-like reactive cells                    | Computational documents while staying Markdown-first.                                       |
 | 4     | Offline jobs + generated reports                | Reporting as a first-class feature; revision-pinned, reviewable.                             |
 | 5     | Realtime workspace experience                   | Optional collaboration without a second durable model.                                      |
 | 6     | Character-level co-editing (only if required)   | Deferred; gated on §12 need.                                                                |
@@ -95,15 +95,15 @@ are written as their decisions are settled.
 Verified against the green suite as of `26e0f9c` (09-13):
 
 - **Stages 0, 1 and 2 are complete**; **Stage 3 is substantially complete** —
-  cells compile, run, invalidate and persist, but the named app component API
-  (`Replot`, `WorkItem`) does not exist, so two exit criteria are unmet
-  (finding 11).
+  cells compile, run, invalidate and persist, and a `tsx` cell renders React
+  from its final expression, but a cell cannot `import` a library, so no
+  third-party component (Replot included) can reach a cell yet (finding 11).
 - **Stage 4 (offline jobs + generated reports) is deferred by decision** —
   `@tributary/jobs` remains an empty stub; revisit before starting it.
 - Findings 6 (inline parser) and 7 (SQLite ownership) are resolved; the HTML
   render path is hardened (arch §8). The Electron ABI is verified under
   Electron's bundled Node (finding 4); the window probe (`smoke:window`)
-  needs a desktop session. Open: test breadth (8), the missing component API
-  (11), the quote-sensitive capability-import shim (12).
+  needs a desktop session. Open: test breadth (8), module resolution for cell
+  imports (11), the quote-sensitive capability-import shim (12).
 
 Remaining gaps are tracked in [`findings.md`](./findings.md).

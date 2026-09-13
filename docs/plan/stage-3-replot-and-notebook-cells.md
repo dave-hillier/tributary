@@ -18,7 +18,8 @@ see [`findings.md`](./findings.md).
 Treat every `js`/`ts`/`jsx`/`tsx` fenced block as a first-class executable
 cell (one cell model, not a special "Replot block"), compile cells into a
 dependency graph, and render cell outputs as React. Replot is just a React
-component from the app API, not a distinct format block.
+library a cell imports — not a distinct format block, and not part of any
+first-party component API.
 
 ## Cell model
 
@@ -30,14 +31,17 @@ const deployments = await api.deployments.list()
 ```
 
 ```tsx
-<Replot>
+import { Plot, BarY } from "replot/react"
+
+<Plot>
   <BarY data={deployments} x="service" y="count" />
-</Replot>
+</Plot>
 ```
 ````
 
 - `js`, `ts`, `jsx`, `tsx` are variants of the **same cell model**.
-- Ordinary React components (not only Replot) are allowed in `tsx` cells.
+- Any React component is allowed in a `tsx` cell; nothing about Replot is
+  special-cased.
 - The **final expression** of a cell is its output; earlier declarations become
   available to downstream cells (notebook ergonomics, no `display()` required).
 
@@ -91,12 +95,14 @@ Markdown
 ### 3.4 Capability & component API (`@tributary/api`, `components`)
 - `import { workspace, git, query } from "@tributary/api"` — permissive for
   v1 (workspaces are trusted; sandboxing deferred to Stage 7).
-- `import { WorkItem, Assignee, Replot } from "@tributary/components"` — the
-  stable app component API.
+- Ordinary React libraries — Replot included — are imported by the cell from
+  the workspace's dependencies; they are not a first-party component API
+  (finding 11). `@tributary/components` is reserved for components that must be
+  injected rather than installed.
 
 ### 3.5 Rendering (`@tributary/render`, `components`)
-- Render cell outputs per the output-semantics table; Replot consumes data
-  without owning the DOM (§6.1).
+- Render cell outputs per the output-semantics table. Replot needs no help to
+  honour §6.1: its marks are JSX, so React owns the DOM by construction.
 
 ## Resolved decisions (ADR-004)
 
@@ -114,10 +120,11 @@ Markdown
 - [~] Plain wiki docs incur **no notebook runtime cost** — no cells means no
       compilation, but the host is still constructed and an IPC evaluate still
       runs for every document (finding 14).
-- [ ] A `tsx` cell renders an app component (`Replot`, `WorkItem`) from the
-      final expression with no `display()` call — **not met**: the component API
-      does not exist and `components: {}` is injected (finding 11). A `tsx` cell
-      does render its final expression as React with no `display()` call.
+- [x] A `tsx` cell renders a React component from the final expression with no
+      `display()` call.
+- [ ] A cell can `import` a component library (e.g. Replot) — **not met**: only
+      `@tributary/api`/`components` specifiers are resolved; any other import
+      throws (finding 11).
 - [x] Execution stays behind `NotebookHost` + the capability boundary.
 
 **Computational documents, still `.md` — TSX lives inside cells, never at the
