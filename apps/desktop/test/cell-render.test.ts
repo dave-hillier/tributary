@@ -42,6 +42,39 @@ describe('cell imports render in-process (finding 11)', () => {
     }
   });
 
+  it('tells dependants why a cell that stopped compiling stopped providing', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'tributary-cell-compile-'));
+    try {
+      await createDemoWorkspace(root);
+      const service = new WorkspaceService();
+      await service.open(root);
+      const context = { React, api: {}, components: {} };
+
+      const good = await service.compileDocument([
+        { lang: 'js', source: 'const a = 1' },
+        { lang: 'js', source: 'a + 1' },
+      ]);
+      const host = new ReactiveHost(
+        good.map((c, i) => withName('doc#' + i, c)),
+        { context }
+      );
+      expect((await host.evaluate()).get('doc#1')).toBe(2);
+
+      // The first cell is edited into something esbuild rejects — the everyday
+      // case while typing in the cell editor.
+      const broken = await service.compileDocument([{ lang: 'js', source: 'const a = (' }]);
+      host.define(withName('doc#0', broken[0]!));
+
+      const outs = await host.evaluate();
+      expect((outs.get('doc#0') as Error).message).toContain('Cell compile error');
+      const dependant = outs.get('doc#1');
+      expect(dependant).toBeInstanceOf(Error);
+      expect((dependant as Error).message).toContain('Cell compile error');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('propagates a failing cell to its dependants through the real compiler', async () => {
     const root = mkdtempSync(join(tmpdir(), 'tributary-cell-error-'));
     try {

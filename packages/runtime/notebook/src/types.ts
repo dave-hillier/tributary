@@ -22,6 +22,12 @@ export interface CompiledReactiveCell {
   refs: string[];
   /** Self-contained JS: import preamble + the `with (scope) { … }` block. */
   js: string;
+  /**
+   * Set when the cell could not be compiled; `js` throws this same message.
+   * A failed cell declares nothing, so without this a host cannot tell a
+   * dependant why a name it used to read has gone.
+   */
+  compileError?: string;
 }
 
 /**

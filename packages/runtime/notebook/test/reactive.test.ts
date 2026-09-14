@@ -183,6 +183,43 @@ describe('ReactiveHost', () => {
     expect(outs.get('c1')).toBeInstanceOf(Error);
   });
 
+  it('gives dependants the compile error when a cell stops compiling', async () => {
+    const host = hostOf(
+      [
+        { lang: 'js', source: 'const a = 1' },
+        { lang: 'js', source: 'a + 1' },
+      ],
+      react
+    );
+    expect((await host.evaluate()).get('c1')).toBe(2);
+
+    // Cell 0 no longer compiles, so it publishes nothing. Its dependant must
+    // report the real cause rather than a bare ReferenceError for `a`.
+    host.define(withName('c0', compileReactiveCell('const a = (', 'js')));
+    const outs = await host.evaluate();
+    expect((outs.get('c0') as Error).message).toContain('Cell compile error');
+    const dependant = outs.get('c1');
+    expect(dependant).toBeInstanceOf(Error);
+    expect((dependant as Error).message).toContain('Cell compile error');
+  });
+
+  it('clears that compile error once the cell compiles again', async () => {
+    const host = hostOf(
+      [
+        { lang: 'js', source: 'const a = 1' },
+        { lang: 'js', source: 'a + 1' },
+      ],
+      react
+    );
+    await host.evaluate();
+
+    host.define(withName('c0', compileReactiveCell('const a = (', 'js')));
+    expect((await host.evaluate()).get('c1')).toBeInstanceOf(Error);
+
+    host.define(withName('c0', compileReactiveCell('const a = 41', 'js')));
+    expect((await host.evaluate()).get('c1')).toBe(42);
+  });
+
   it('clears a recorded error once the cell succeeds again', async () => {
     const host = hostOf(
       [

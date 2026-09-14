@@ -251,10 +251,14 @@ function transformCell(source: string, lang: CellLanguage): string {
 
 function errorCell(e: unknown): CompiledReactiveCell {
   const msg = e instanceof Error ? e.message : String(e);
+  const message = 'Cell compile error: ' + msg;
   return {
     provided: [],
     refs: [],
-    js: 'throw new Error(' + JSON.stringify('Cell compile error: ' + msg) + ');',
+    js: 'throw new Error(' + JSON.stringify(message) + ');',
+    // Carried so a host can tell this cell's former dependants why the names it
+    // used to publish have gone, instead of leaving them a ReferenceError.
+    compileError: message,
   };
 }
 

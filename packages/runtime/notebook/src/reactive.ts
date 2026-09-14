@@ -226,6 +226,7 @@ export class ReactiveHost implements NotebookHost<CompiledCellDef> {
     // the cells that used to read it are no longer adjacent in the new graph,
     // so this is the only chance to mark them. It also drops the cell's own
     // stale bindings while `this.cells[i].provided` still describes them.
+    const previous = this.cells[existing]!.provided;
     this.markDirtyFrom(existing);
 
     this.cells[existing] = cell;
@@ -234,6 +235,15 @@ export class ReactiveHost implements NotebookHost<CompiledCellDef> {
     // Then against the new shape, so newly-introduced dependants are covered.
     this.buildReverse();
     this.markDirtyFrom(existing);
+
+    // A cell that failed to compile declares nothing, so the names it used to
+    // publish have just been dropped. Record the real cause against each, so its
+    // dependants report the compile failure rather than a bare ReferenceError —
+    // this is the common case while typing in the cell editor. Deliberately
+    // after the markDirty above, which clears errors for the old names.
+    if (cell.compileError !== undefined) {
+      for (const name of previous) this.errors.set(name, new Error(cell.compileError));
+    }
   }
 
   invalidate(name: string): void {

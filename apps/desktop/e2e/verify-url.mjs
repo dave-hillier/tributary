@@ -156,6 +156,36 @@ try {
   await page.goBack();
   await page.waitForTimeout(300);
   check('back leaves the filtered board URL', !(await hashOf()).includes('status=doing'), await hashOf());
+
+  // Editing a cell into something that will not compile must tell its dependants
+  // why, rather than leaving them with a bare ReferenceError for a name that
+  // stopped being published. Runs last: it leaves the workspace holding broken
+  // source.
+  await page.goto(base + '#/doc/index.md');
+  await page.waitForSelector('figure[data-cell]', { timeout: 15000 });
+  await page.waitForTimeout(800);
+  // Locate by content, not position: earlier checks can change how many cells
+  // the transclusion contributes. The dependant is the cell rendering a
+  // <strong>; its upstream is the cell immediately before it.
+  const cells = page.locator('figure[data-cell]');
+  const total = await cells.count();
+  let dependantIndex = -1;
+  for (let i = 0; i < total; i++) {
+    if ((await cells.nth(i).locator('strong').count()) > 0) {
+      dependantIndex = i;
+      break;
+    }
+  }
+  const upstream = cells.nth(dependantIndex - 1);
+  await upstream.locator('button.cell-edit-toggle').click();
+  await upstream.locator('textarea.cell-editor').fill('const greeting = (');
+  await page.waitForTimeout(2500);
+  const dependantText = (await cells.nth(dependantIndex).innerText()).replace(/\s+/g, ' ');
+  check(
+    'a dependant reports the compile error, not a ReferenceError',
+    dependantText.includes('Cell compile error') && !dependantText.includes('is not defined'),
+    dependantText.slice(0, 100),
+  );
 } catch (err) {
   check('scenario ran without throwing', false, String(err));
 } finally {
