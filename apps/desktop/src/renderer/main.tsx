@@ -404,8 +404,11 @@ function App() {
    * swapping the execution engine (a worker host, say) is a change at this one
    * construction site.
    */
-  const loadCells = async (doc: Document, lookup: (target: string) => Document | undefined): Promise<void> => {
-    const seq = ++loadSeqRef.current;
+  const loadCells = async (
+    doc: Document,
+    lookup: (target: string) => Document | undefined,
+    seq: number
+  ): Promise<void> => {
     const groups = reachableDocuments(doc, lookup)
       .map((owner) => ({ owner, cells: collectOwnCells(owner) }))
       .filter((g) => g.cells.length > 0);
@@ -485,8 +488,14 @@ function App() {
     conflictRef.current = null;
     setMergeConflict(false);
     setLoading(true);
+    // The newest load owns the view. Without this, a superseded load can commit
+    // `current` after a newer one has installed results keyed by *its* Cell
+    // objects — and since every lookup is by object identity, every cell would
+    // then resolve to nothing and sit pending.
+    const seq = ++loadSeqRef.current;
     try {
       const d = await window.tributary.getDocument(id);
+      if (seq !== loadSeqRef.current) return;
       if (d) {
         if (id !== current?.id) setSavedMsg('');
         setCurrent(d);
@@ -500,14 +509,16 @@ function App() {
         // Use the canonical document list so the cells we compile are the same
         // objects the render's transclusion resolver will hand to CellView.
         const resolver = makeTransclusionResolver(dataRef.current.docs);
-        await loadCells(d, (target) => resolver.resolve(target));
+        await loadCells(d, (target) => resolver.resolve(target), seq);
       }
     } catch (e) {
       // Surface the failure instead of letting it escape as an unhandled
       // rejection with no visible cause.
       setSavedMsg('Could not open document: ' + String(e));
     } finally {
-      setLoading(false);
+      // Only the newest load clears the flag; a superseded one must not drop it
+      // while its successor is still in flight.
+      if (seq === loadSeqRef.current) setLoading(false);
     }
   };
   loadRef.current = load;
