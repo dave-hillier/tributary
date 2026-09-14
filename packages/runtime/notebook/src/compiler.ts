@@ -203,6 +203,8 @@ function assembleReactiveCell(resolved: ResolvedCell): CompiledReactiveCell {
   } else {
     let out = 'with (scope) {';
     let cursor = 0;
+    // The cell's value, held back so declarations can be published first.
+    let tail = '';
     const stmts = ast.body;
     for (let idx = 0; idx < stmts.length; idx++) {
       const stmt = stmts[idx]!;
@@ -213,15 +215,24 @@ function assembleReactiveCell(resolved: ResolvedCell): CompiledReactiveCell {
         for (const n of names) {
           provided.push(n);
           refs.delete(n);
-          out += '\nscope.' + n + ' = ' + n + ';';
         }
       } else if (idx === stmts.length - 1 && stmt.type === 'ExpressionStatement') {
-        out += 'return (' + resolved.body.slice(stmt.expression.start, stmt.expression.end) + ');';
+        // Held back and evaluated before the scope writes below, because its
+        // side effects count: `let x = 1; x = 2` mutates in its final
+        // expression, and a `return` here would skip the publish entirely.
+        tail = resolved.body.slice(stmt.expression.start, stmt.expression.end);
       } else {
         out += resolved.body.slice(stmt.start, stmt.end);
       }
       cursor = stmt.end;
     }
+    // Publish once the body has finished, so a cell that rebinds one of its own
+    // names shares the FINAL value. Publishing at the declaration shared the
+    // initial one: `let total = 0; for (…) total += n; total` returned 6 in its
+    // own cell while every dependant read 0.
+    if (tail !== '') out += '\nconst __tributary_cell_value = (' + tail + ');';
+    for (const name of new Set(provided)) out += '\nscope.' + name + ' = ' + name + ';';
+    if (tail !== '') out += '\nreturn __tributary_cell_value;';
     out += '}';
     body = out;
   }

@@ -209,6 +209,44 @@ describe('ReactiveHost', () => {
     expect((seen[0]![1] as Error).message).toContain('boom');
   });
 
+  it('shares the final value of a declaration the cell rebinds', async () => {
+    const host = hostOf(
+      [
+        { lang: 'js', source: 'let total = 0;\nfor (const n of [1, 2, 3]) { total += n; }\ntotal' },
+        { lang: 'js', source: 'total' },
+      ],
+      react
+    );
+    const outs = await host.evaluate();
+    // The accumulator's own cell has always seen 6; a dependant must too.
+    expect(outs.get('c0')).toBe(6);
+    expect(outs.get('c1')).toBe(6);
+  });
+
+  it('shares a declaration mutated by a later statement', async () => {
+    const host = hostOf(
+      [
+        { lang: 'js', source: 'let x = 1;\nx = 2;' },
+        { lang: 'js', source: 'x' },
+      ],
+      react
+    );
+    const outs = await host.evaluate();
+    expect(outs.get('c1')).toBe(2);
+  });
+
+  it('shares the final value of a declaration derived from another', async () => {
+    const host = hostOf(
+      [
+        { lang: 'js', source: 'let items = [];\nitems.push("a");\nitems.push("b");\nitems' },
+        { lang: 'js', source: 'items.join("-")' },
+      ],
+      react
+    );
+    const outs = await host.evaluate();
+    expect(outs.get('c1')).toBe('a-b');
+  });
+
   it('stops a superseded evaluate from writing', async () => {
     let release!: () => void;
     const gate = new Promise<void>((resolve) => {
