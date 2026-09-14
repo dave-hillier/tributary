@@ -149,6 +149,37 @@ describe('DocumentView', () => {
     expect(html).not.toContain('vbscript');
   });
 
+  it('rejects slash-separated attributes the old regex never inspected', () => {
+    const html = renderDoc({
+      type: 'root',
+      children: [
+        // A slash separates src from onerror to the HTML tokenizer.
+        { type: 'html', value: '<img/src=/safe onerror=alert(1)>' },
+        // A slash and equals sign live inside an unquoted value, so src must
+        // still fail the URL allow-list rather than bypass the attribute scan.
+        { type: 'html', value: '<img src=x/onerror=alert(1)>' },
+        { type: 'html', value: '<div/onmouseover=alert(1)>' },
+      ],
+    });
+    expect(html).not.toContain('onerror');
+    expect(html).not.toContain('onmouseover');
+    expect(html).not.toContain('alert(1)');
+  });
+
+  it('still accepts self-closing and slash-containing safe markup', () => {
+    const html = renderDoc({
+      type: 'root',
+      children: [
+        { type: 'html', value: '<img src="/safe.png" alt="a"/>' },
+        { type: 'html', value: '<a href=/local/path rel="nofollow">x</a>' },
+        { type: 'html', value: '<p>a &lt; b</p>' },
+      ],
+    });
+    expect(html).toContain('/safe.png');
+    expect(html).toContain('/local/path');
+    expect(html).toContain('a &lt; b');
+  });
+
   it('keeps safe links and attributes', () => {
     const html = renderDoc({
       type: 'root',

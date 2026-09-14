@@ -51,11 +51,13 @@ function text(value: string): ReactElement {
 // HTML sanitisation (conservative; unsafe HTML is skipped, never rendered)
 // ---------------------------------------------------------------------------
 
-const DANGEROUS_TAG =
-  /<\s*(script|iframe|object|embed|form|input|select|textarea|button|style|link|meta|title|base|frame|frameset|applet|svg|math|audio|video|source|track|template|dialog|portal)\b/i;
-const EVENT_HANDLER = /\son[a-z]+\s*=/i;
-const UNSAFE_SCHEME = /\b(javascript|vbscript)\s*:/i;
-const DATA_TEXT_HTML = /data\s*:\s*text\/html/i;
+/** Tags that can execute, navigate, or re-enter the HTML parser; never rendered. */
+const DANGEROUS_TAGS = new Set([
+  'script', 'iframe', 'object', 'embed', 'form', 'input', 'select', 'textarea',
+  'button', 'style', 'link', 'meta', 'title', 'base', 'frame', 'frameset',
+  'applet', 'svg', 'math', 'audio', 'video', 'source', 'track', 'template',
+  'dialog', 'portal', 'plaintext', 'xmp',
+]);
 
 /** Attributes allowed to survive in document HTML (everything else is stripped). */
 const SAFE_ATTRS = new Set([
@@ -123,27 +125,117 @@ function isSafeUrl(value: string): boolean {
   return /^(https?:|mailto:|tel:)/i.test(v);
 }
 
-/** True when every attribute on every opening tag is allowed. */
-function attributesAreSafe(html: string): boolean {
-  const tagRe = /<\s*([a-zA-Z][a-zA-Z0-9]*)((?:\s+[a-zA-Z-]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'=<>`]+))?)*)\s*\/?>/g;
-  const attrRe = /\s+([a-zA-Z-]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g;
-  let tag: RegExpExecArray | null;
-  while ((tag = tagRe.exec(html))) {
-    const rawAttrs = tag[2] ?? '';
-    let a: RegExpExecArray | null;
-    while ((a = attrRe.exec(rawAttrs))) {
-      const name = a[1]!.toLowerCase();
-      const value = (a[2] ?? a[3] ?? a[4] ?? '').trim();
-      if (name.startsWith('on')) return false;
-      if (name === 'style') return false;
-      // URL attributes are allowed only when the URL itself is safe; all other
-      // attribute names must be in the allow-list.
-      const isUrlAttr = URL_ATTRS.has(name);
-      if (!isUrlAttr && !SAFE_ATTRS.has(name)) return false;
-      if (isUrlAttr && !isSafeUrl(value)) return false;
-    }
+/** One opening/closing tag recovered from a raw HTML fragment. */
+interface ParsedTag {
+  name: string;
+  attrs: { name: string; value: string }[];
+}
+
+function isAsciiLetter(ch: string): boolean {
+  return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z');
+}
+
+function skipWhitespace(html: string, i: number): number {
+  while (i < html.length && /\s/.test(html[i] ?? '')) i++;
+  return i;
+}
+
+/** Read a tag name (must start with an ASCII letter). */
+function readTagName(html: string, i: number): { value: string; end: number } | null {
+  if (!isAsciiLetter(html[i] ?? '')) return null;
+  const start = i;
+  i++;
+  while (i < html.length && /[a-zA-Z0-9-]/.test(html[i] ?? '')) i++;
+  return { value: html.slice(start, i), end: i };
+}
+
+/** Read an attribute name; anything unusual fails closed. */
+function readAttrName(html: string, i: number): { value: string; end: number } | null {
+  const start = i;
+  while (i < html.length && /[^\s"'>/=\0]/.test(html[i] ?? '')) i++;
+  if (i === start) return null;
+  return { value: html.slice(start, i), end: i };
+}
+
+/** Read an attribute value (double-quoted, single-quoted, or unquoted). */
+function readAttrValue(html: string, i: number): { value: string; end: number } | null {
+  const quote = html[i];
+  if (quote === '"' || quote === "'") {
+    const close = html.indexOf(quote, i + 1);
+    if (close === -1) return null;
+    return { value: html.slice(i + 1, close), end: close + 1 };
   }
-  return true;
+  const start = i;
+  while (i < html.length && !/\s/.test(html[i] ?? '') && html[i] !== '>') i++;
+  return { value: html.slice(start, i), end: i };
+}
+
+/**
+ * Tokenise every tag in a raw HTML fragment, failing closed: `null` means the
+ * fragment contains something this parser does not fully understand (a comment,
+ * doctype, processing instruction, malformed or unterminated tag), so it is not
+ * safe to hand to the browser. The parser mirrors the HTML5 tokenizer's
+ * handling of the separators the old regex missed: `/` separates attributes
+ * before a name and terminates an unquoted value, and a `<` that cannot start
+ * a tag is literal text.
+ */
+function parseHtmlTags(html: string): ParsedTag[] | null {
+  const tags: ParsedTag[] = [];
+  let i = 0;
+  while (i < html.length) {
+    const lt = html.indexOf('<', i);
+    if (lt === -1) break;
+    i = lt + 1;
+    if (i >= html.length) break;
+    const ch = html[i] ?? '';
+    if (!isAsciiLetter(ch) && ch !== '/' && ch !== '!' && ch !== '?') continue;
+    if (ch === '!' || ch === '?') return null;
+    if (ch === '/') {
+      const closing = readTagName(html, i + 1);
+      if (!closing) return null;
+      i = skipWhitespace(html, closing.end);
+      if (html[i] !== '>') return null;
+      tags.push({ name: closing.value.toLowerCase(), attrs: [] });
+      i++;
+      continue;
+    }
+    const opening = readTagName(html, i);
+    if (!opening) return null;
+    i = opening.end;
+    const attrs: ParsedTag['attrs'] = [];
+    for (;;) {
+      i = skipWhitespace(html, i);
+      if (i >= html.length) return null;
+      if (html[i] === '/') {
+        i++;
+        if (html[i] === '>') {
+          i++;
+          break;
+        }
+        continue;
+      }
+      if (html[i] === '>') {
+        i++;
+        break;
+      }
+      const attrName = readAttrName(html, i);
+      if (!attrName) return null;
+      i = attrName.end;
+      let value = '';
+      const afterName = skipWhitespace(html, i);
+      if (html[afterName] === '=') {
+        const attrValue = readAttrValue(html, skipWhitespace(html, afterName + 1));
+        if (!attrValue) return null;
+        value = attrValue.value;
+        i = attrValue.end;
+      } else {
+        i = afterName;
+      }
+      attrs.push({ name: attrName.value, value });
+    }
+    tags.push({ name: opening.value.toLowerCase(), attrs });
+  }
+  return tags;
 }
 
 /**
@@ -155,12 +247,21 @@ function attributesAreSafe(html: string): boolean {
 function sanitizeHtml(raw: string): string | null {
   const html = raw.trim();
   if (html === '') return null;
-  const checked = decodeEntitiesForCheck(html);
-  if (DANGEROUS_TAG.test(checked)) return null;
-  if (EVENT_HANDLER.test(checked)) return null;
-  if (UNSAFE_SCHEME.test(checked)) return null;
-  if (DATA_TEXT_HTML.test(checked)) return null;
-  if (!attributesAreSafe(checked)) return null;
+  const tags = parseHtmlTags(html);
+  if (tags === null) return null;
+  for (const tag of tags) {
+    if (DANGEROUS_TAGS.has(tag.name)) return null;
+    for (const attr of tag.attrs) {
+      const name = attr.name.toLowerCase();
+      // Event handlers and inline style are never allowed.
+      if (name.startsWith('on') || name === 'style') return null;
+      // URL attributes are allowed only when the entity-decoded URL is safe;
+      // all other attribute names must be in the allow-list.
+      const isUrlAttr = URL_ATTRS.has(name);
+      if (!isUrlAttr && !SAFE_ATTRS.has(name)) return null;
+      if (isUrlAttr && !isSafeUrl(decodeEntitiesForCheck(attr.value))) return null;
+    }
+  }
   return html;
 }
 
