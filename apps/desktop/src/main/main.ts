@@ -20,7 +20,10 @@ function createWindow(): BrowserWindow {
     width: 1200,
     height: 800,
     webPreferences: {
-      preload: join(here, '../preload.js'),
+      // ESM preloads need the .mjs extension and a non-sandboxed preload;
+      // context isolation stays on, so the renderer still has no Node access.
+      preload: join(here, '../preload.mjs'),
+      sandbox: false,
       contextIsolation: true,
       nodeIntegration: false,
     },

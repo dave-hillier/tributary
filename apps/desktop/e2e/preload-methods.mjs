@@ -1,6 +1,6 @@
 /**
  * The methods the browser harnesses expose on `window.tributary`. Keep this in
- * sync with `apps/desktop/src/preload.ts`; both `preview.mjs` and
+ * sync with `apps/desktop/src/preload.mts`; both `preview.mjs` and
  * `verify-url.mjs` import it so they can never drift apart.
  */
 export const PRELOAD_METHODS = [

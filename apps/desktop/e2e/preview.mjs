@@ -31,7 +31,7 @@ const bare = mkdtempSync(join(tmpdir(), 'tributary-preview-bare-'));
 execFileSync('git', ['init', '--bare', '-q', bare]);
 await service.addRemote(bare);
 
-// Allowed API surface (mirrors apps/desktop/src/preload.ts).
+// Allowed API surface (mirrors apps/desktop/src/preload.mts).
 const METHODS = new Set(PRELOAD_METHODS);
 
 const SHIM = `<script>
