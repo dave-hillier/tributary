@@ -21,6 +21,34 @@ describe('updateFrontmatter', () => {
   it('creates a frontmatter block when none is present', () => {
     expect(updateFrontmatter('# Body\n', { kind: 'wiki' })).toBe('---\nkind: wiki\n---\n\n# Body\n');
   });
+
+  it('patches a top-level key without rewriting the same key nested below', () => {
+    const src = '---\nmeta:\n  status: draft\ntitle: T\n---\n\nBody\n';
+    const out = updateFrontmatter(src, { status: 'todo' });
+    expect(out).toContain('  status: draft');
+    expect(out).toContain('status: todo');
+    const fm = parseMarkdown(out, { path: 'x.md' }).frontmatter as Record<string, unknown>;
+    expect(fm.status).toBe('todo');
+    expect(fm.meta).toEqual({ status: 'draft' });
+  });
+
+  it('serializes a list as an indented block that re-parses', () => {
+    const src = '---\nassignees: alice\n---\n\nBody\n';
+    const out = updateFrontmatter(src, { assignees: ['user:a', 'user:b'] });
+    expect(out).toContain('assignees:\n  - user:a\n  - user:b');
+    const fm = parseMarkdown(out, { path: 'x.md' }).frontmatter as Record<string, unknown>;
+    expect(fm.assignees).toEqual(['user:a', 'user:b']);
+  });
+
+  it('replaces an existing block list rather than leaving orphaned items', () => {
+    const src = '---\nassignees:\n- user:a\n- user:b\ntitle: T\n---\n\nBody\n';
+    const out = updateFrontmatter(src, { assignees: ['user:c'] });
+    expect(out).toContain('assignees:\n  - user:c');
+    expect(out).not.toContain('user:a');
+    const fm = parseMarkdown(out, { path: 'x.md' }).frontmatter as Record<string, unknown>;
+    expect(fm.assignees).toEqual(['user:c']);
+    expect(fm.title).toBe('T');
+  });
 });
 
 describe('stringifyMarkdown preserves raw frontmatter', () => {

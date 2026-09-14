@@ -36,27 +36,54 @@ function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-/** Update top-level scalar keys in raw YAML, preserving all other text. */
+/** Update top-level keys in raw YAML, preserving all other text. */
 function patchRawYaml(raw: string, patch: Record<string, unknown>): string {
   const lines = raw.split('\n');
-  const matched = new Set<string>();
   for (const key of Object.keys(patch)) {
-    const keyRe = new RegExp('^\\s*' + escapeRegExp(key) + '\\s*:');
+    // Top-level keys only: anchored at column 0, so a nested `  status:` is
+    // never mistaken for the top-level key.
+    const keyRe = new RegExp('^' + escapeRegExp(key) + '\\s*:');
     const idx = lines.findIndex((l) => keyRe.test(l));
-    const value = stringifyYaml(patch[key]).trimEnd();
+    const replacement = renderKey(key, patch[key]);
     if (idx >= 0) {
-      const line = lines[idx] ?? '';
-      const indent = line.match(/^\s*/)?.[0] ?? '';
-      lines[idx] = indent + key + ': ' + value;
-      matched.add(key);
-    }
-  }
-  for (const key of Object.keys(patch)) {
-    if (!matched.has(key)) {
-      lines.push(key + ': ' + stringifyYaml(patch[key]).trimEnd());
+      // Replace the key's whole existing value (scalar, block scalar, or an
+      // indented/top-level sequence), not just its first line.
+      lines.splice(idx, valueEnd(lines, idx) - idx, ...replacement);
+    } else {
+      lines.push(...replacement);
     }
   }
   return lines.join('\n');
+}
+
+/** Render a `key:` assignment, using an indented block for non-scalar values. */
+function renderKey(key: string, value: unknown): string[] {
+  const str = stringifyYaml(value).trimEnd();
+  if (value !== null && typeof value === 'object') {
+    const size = Array.isArray(value) ? value.length : Object.keys(value).length;
+    if (size > 0) return [key + ':', ...str.split('\n').map((l) => '  ' + l)];
+  }
+  return [key + ': ' + str];
+}
+
+/**
+ * Exclusive end index of the value beginning at key line `i`: a scalar ends on
+ * the key line; a block scalar or an empty inline value consumes the following
+ * indented lines (and a top-level `- ` sequence, which YAML permits at the
+ * key's own indentation).
+ */
+function valueEnd(lines: string[], i: number): number {
+  const colon = (lines[i] ?? '').indexOf(':');
+  const inline = colon >= 0 ? (lines[i] ?? '').slice(colon + 1).trim() : '';
+  if (inline !== '' && !/^[|>]/.test(inline)) return i + 1;
+  let j = i + 1;
+  while (j < lines.length) {
+    const l = lines[j] ?? '';
+    if (l.trim() === '') break;
+    if (/^\s/.test(l) || /^-(\s|$)/.test(l)) j++;
+    else break;
+  }
+  return j;
 }
 
 /**
