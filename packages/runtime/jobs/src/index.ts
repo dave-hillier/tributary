@@ -74,6 +74,16 @@ export function buildReportSource(config: ReportConfig, revision: string, body: 
   return updateFrontmatter(body, fm);
 }
 
+/** A free branch name: suffix a counter rather than failing when one exists. */
+function uniqueBranch(workspace: Workspace, base: string): string {
+  const taken = new Set(workspace.listBranches(base));
+  if (!taken.has(base)) return base;
+  for (let n = 2; ; n++) {
+    const candidate = base + '-' + n;
+    if (!taken.has(candidate)) return candidate;
+  }
+}
+
 /**
  * Run a revision-pinned job in an isolated worktree and commit its report to a
  * local branch (arch §5.5). The branch is left for review; merge is a separate
@@ -83,14 +93,25 @@ export async function runJob(opts: RunJobOptions): Promise<RunJobOutcome> {
   const main = await Workspace.open(opts.rootPath);
   const sourceRevision = opts.sourceRevision ?? main.revision();
   const jobName = opts.config.generatedBy.replace(/^jobs\//, '');
-  const branch =
-    opts.config.branchName ?? 'jobs/' + slug(jobName) + '-' + sourceRevision.slice(0, 7);
+  // The period is part of the branch identity, so a fresh week gets a fresh
+  // branch; a rerun in the same period gets a numeric suffix instead of a
+  // `branch already exists` failure.
+  const baseBranch =
+    opts.config.branchName ??
+    'jobs/' +
+      [slug(jobName), opts.config.period ? slug(opts.config.period) : '', sourceRevision.slice(0, 7)]
+        .filter(Boolean)
+        .join('-');
+  const branch = uniqueBranch(main, baseBranch);
   const reportPath = defaultReportPath(opts.config);
   const worktreeDir = join(opts.worktreeParentDir ?? tmpdir(), 'tributary-job-' + randomUUID());
 
+  let created = false;
+  let index: SqliteIndex | null = null;
   try {
     const wt = await main.createWorktree(sourceRevision, worktreeDir, branch);
-    const index = new SqliteIndex(join(worktreeDir, '.tributary', 'index.db'));
+    created = true;
+    index = new SqliteIndex(join(worktreeDir, '.tributary', 'index.db'));
     index.rebuild(wt.documents);
 
     const body = await opts.generate({
@@ -101,16 +122,19 @@ export async function runJob(opts: RunJobOptions): Promise<RunJobOutcome> {
     const reportSource = buildReportSource(opts.config, sourceRevision, body);
     const reportDoc = parseMarkdown(reportSource, { path: reportPath });
     await wt.save(reportDoc, 'generate ' + opts.config.generatedBy + ' report');
-    index.close();
 
     const commit = wt.revision();
     const diff = main.diffBetween(sourceRevision, commit);
     return { sourceRevision, branch, commit, reportPath, reportSource, diff };
   } finally {
-    try {
-      main.removeWorktree(worktreeDir);
-    } catch {
-      // best-effort worktree cleanup; the branch + commit remain for review
+    // Close the handle on every path and only remove a worktree we created.
+    index?.close();
+    if (created) {
+      try {
+        main.removeWorktree(worktreeDir);
+      } catch {
+        // best-effort worktree cleanup; the branch + commit remain for review
+      }
     }
   }
 }

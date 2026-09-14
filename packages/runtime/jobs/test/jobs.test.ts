@@ -99,4 +99,52 @@ describe('jobs (Stage 4)', () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  it('can generate the same report twice at one revision (finding 6)', async () => {
+    const root = tempDir();
+    try {
+      await createDemoWorkspace(root);
+      const config = {
+        generatedBy: 'jobs/engineering-weekly',
+        title: 'Weekly Engineering Report',
+        series: 'engineering-weekly',
+        period: '2026-W37',
+      };
+      const first = await runJob({ rootPath: root, config, generate: weeklyReport });
+      const second = await runJob({ rootPath: root, config, generate: weeklyReport });
+
+      expect(second.sourceRevision).toBe(first.sourceRevision);
+      expect(second.branch).not.toBe(first.branch);
+      expect(second.commit).toMatch(/^[0-9a-f]{40}$/);
+
+      const branches = (await Workspace.open(root)).listBranches('jobs/');
+      expect(branches).toContain(first.branch);
+      expect(branches).toContain(second.branch);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('cleans up its worktree and index when generate throws (finding 10)', async () => {
+    const root = tempDir();
+    try {
+      await createDemoWorkspace(root);
+      const config = { generatedBy: 'jobs/weekly', title: 'Weekly', period: '2026-W1' };
+      await expect(
+        runJob({
+          rootPath: root,
+          config,
+          generate: () => {
+            throw new Error('boom');
+          },
+        }),
+      ).rejects.toThrow('boom');
+
+      // The failed run left nothing behind that blocks the next one.
+      const retry = await runJob({ rootPath: root, config, generate: weeklyReport });
+      expect(retry.commit).toMatch(/^[0-9a-f]{40}$/);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });

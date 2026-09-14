@@ -223,6 +223,10 @@ describe('Workspace (real temp Git repo)', () => {
       doc.source = doc.source!.replace('A simple wiki document', 'A simple wiki document (ours)');
       const result = await ws.save(doc, 'our edit');
       expect(result.changed).toBe(true);
+      expect(result.merged).toBe(true);
+      // The merged document is returned so the caller can adopt it (finding 9).
+      expect(result.document?.source).toContain('# Hello (theirs)');
+      expect(result.document?.source).toContain('A simple wiki document (ours)');
       const final = readFileSync(join(root, 'notes/hello.md'), 'utf8');
       expect(final).toContain('# Hello (theirs)');
       expect(final).toContain('A simple wiki document (ours)');

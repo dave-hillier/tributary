@@ -120,7 +120,10 @@ export class Workspace {
   }
 
   /** Write a document and record a semantic checkpoint commit (skips no-ops). */
-  async save(doc: Document, message?: string): Promise<{ commit: string | null; changed: boolean }> {
+  async save(
+    doc: Document,
+    message?: string
+  ): Promise<{ commit: string | null; changed: boolean; document?: Document; merged: boolean }> {
     const abs = join(this.ref.rootPath, doc.path);
     let newSource = doc.source ?? stringifyMarkdown(doc);
     // Backfill the current (path-derived) id into frontmatter so it survives
@@ -132,11 +135,12 @@ export class Workspace {
     // No-op skip: don't commit when content is unchanged.
     const currentDisk = existsSync(abs) ? readFileSync(abs, 'utf8') : null;
     if (currentDisk === newSource) {
-      return { commit: null, changed: false };
+      return { commit: null, changed: false, merged: false };
     }
 
     // Stale-base guard: if the file moved under us, three-way merge instead of
     // clobbering; surface conflicts rather than losing either side.
+    let merged = false;
     const base = this.baseBlobs.get(doc.id);
     if (base) {
       let headBlob: string | null = null;
@@ -148,11 +152,12 @@ export class Workspace {
       if (headBlob && headBlob !== base) {
         const baseContent = git(this.ref.rootPath, ['cat-file', '-p', base]);
         const theirsContent = git(this.ref.rootPath, ['show', 'HEAD:' + doc.path]);
-        const { merged, conflict } = gitMergeFile(baseContent, newSource, theirsContent);
-        if (conflict) {
-          throw new MergeConflictError(doc.id, merged);
+        const mergeResult = gitMergeFile(baseContent, newSource, theirsContent);
+        if (mergeResult.conflict) {
+          throw new MergeConflictError(doc.id, mergeResult.merged);
         }
-        newSource = merged;
+        newSource = mergeResult.merged;
+        merged = true;
       }
     }
 
@@ -174,7 +179,7 @@ export class Workspace {
       this.baseBlobs.delete(doc.id);
     }
 
-    return { commit, changed: true };
+    return { commit, changed: true, document: updated, merged };
   }
 
   /** Rename/move a document, preserving its id (arch §3.1 identity). */
