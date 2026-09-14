@@ -5,10 +5,8 @@
 - **Status:** Stages 0/1/2/3/4 committed and green. Implemented: findings
   1, 2, 3, 5, 6, 7, 8, 10, 11, 12, 14 and the HTML-sanitisation work. A
   2026-09-14 hardening pass then closed 19 defects found in a fresh review pass
-  (see "Hardening pass — 2026-09-14" below); the suite now stands at 228 tests.
-  Remaining open: the native Electron *window* launch (finding 4 — ABI now
-  verified under Electron bundling; the window probe needs a desktop session,
-  `pnpm --filter app-desktop smoke:window`).
+  (see "Hardening pass — 2026-09-14" below), and finding 4 is fully closed:
+  `smoke` and `smoke:window` both pass on a desktop session.
 
 This is an honest assessment of the work so far. The skeleton and the
 Git-as-truth discipline are sound (see "What holds up" below), but several core
@@ -86,7 +84,13 @@ full window + renderer + contextBridge probe (`smoke:window`, plus the `--smoke`
 branch in `apps/desktop/src/main/main.ts`) requires a desktop session and could
 not execute in this headless sandbox. Also fixed: package `main` pointed at a
 stale empty `dist/index.js` stub instead of `dist/main/main.js`.
-Remaining: run `smoke:window` once on a desktop to close the loop.
+
+**Closed (2026-09-14):** `smoke:window` now runs and passes on a desktop
+session (`SMOKE_OK title=Tributary docs=7 bundledNode=v20.18.3`). Running it
+surfaced a latent bug: the preload was compiled to ESM (`dist/preload.js`) but
+Electron loads preload scripts as CommonJS, so `window.tributary` never came up.
+The preload is now `src/preload.mts` (emitting `preload.mjs`) and the window
+sets `sandbox: false`; context isolation stays on.
 
 ### 5. Medium — Edit path is O(N) re-parse and commits no-op saves
 
@@ -399,10 +403,14 @@ fixed, each with a regression test; the pass took the suite to 228 tests and
 - **P3** — Import resolution runs on the esbuild async API on the IPC path.
 - **P4** — The backlinks label uses a stylesheet rule, not an inline style.
 
-**Open follow-ups.** Transcluded cells share one reactive scope with the host,
-so a name collision is resolved by render order; and the merge-adoption path is
-best-effort when the user types during a merge. Neither is tracked as a numbered
-finding yet.
+**Follow-ups (resolved).** Transcluded cells now evaluate in one reactive host
+per document, so a name collision between documents cannot cross wires; the
+renderer also keys cells to a single canonical document list, because every IPC
+call returns fresh copies. Merge adoption is now unconditional: a three-way
+merge always becomes the visible source and baseline, and any pending autosave
+is dropped, so external changes are never silently discarded (keystrokes typed
+during the merge are superseded by the merged text). The `verify:url` harness
+now covers the transcluded-cell, kindLabel and autosave fixes end to end.
 
 ## Decisions
 
