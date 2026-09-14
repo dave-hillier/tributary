@@ -104,9 +104,31 @@ export interface Cell extends Literal {
   meta?: string;
 }
 
+/**
+ * GitHub-style callout: a blockquote whose first line is a `[!KIND]` marker.
+ * The marker is stripped during parsing and the children are the blockquote's
+ * remaining block content.
+ */
+export interface Callout extends Parent {
+  type: 'callout';
+  kind: 'note' | 'tip' | 'important' | 'warning' | 'caution';
+  children: BlockContent[];
+}
+
+/**
+ * Declarative query block: a fenced block whose language is exactly `query`.
+ * The value is the raw fence body; the shell resolves it to a result list.
+ */
+export interface Query extends Literal {
+  type: 'query';
+  value: string;
+}
+
 declare module 'mdast' {
   interface BlockContentMap {
     cell: Cell;
+    callout: Callout;
+    query: Query;
   }
   interface PhrasingContentMap {
     wikiLink: WikiLink;
@@ -247,6 +269,8 @@ export interface NewWorkItem {
   problem?: string;
   labels?: string[];
   due?: string;
+  /** Id/path/title of a `type: template` document to seed defaults from. */
+  template?: string;
 }
 
 /** Reference to a local workspace: one Git repository (arch §5.2). */

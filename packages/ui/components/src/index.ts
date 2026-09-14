@@ -27,6 +27,8 @@ import type {
   WikiLink,
   Transclusion,
   Cell,
+  Callout,
+  Query,
 } from '@tributary/api';
 import { createDocumentRenderer } from '@tributary/render';
 import type { ComponentRegistry, NodeComponent, RenderContext } from '@tributary/render';
@@ -712,6 +714,71 @@ const cellComponent: NodeComponent = ({ node }) => {
   return createElement(CellView, { cell: node as Cell });
 };
 
+// --- Callout blocks (Stage 2, finding 13) --------------------------------------
+
+const calloutComponent: NodeComponent = ({ node, children }) => {
+  const kind = (node as Callout).kind;
+  return createElement(
+    'div',
+    { 'data-callout': kind, className: 'callout callout-' + kind },
+    children,
+  );
+};
+
+// --- Query blocks (Stage 2, finding 13) ----------------------------------------
+
+/** One row returned by a query resolver. */
+export interface QueryResult {
+  title: string;
+  path: string;
+  href?: string;
+}
+
+/**
+ * Resolves a query block's body to result rows. Supplied by the shell (which
+ * owns the document index); components stay pure and never run a query
+ * themselves.
+ */
+export interface QueryResolver {
+  run: (query: string) => QueryResult[];
+}
+
+export const QueryContext = createContext<QueryResolver | null>(null);
+
+const queryComponent: NodeComponent = ({ node }) => {
+  const query = node as Query;
+  const resolver = useContext(QueryContext);
+
+  // No resolver wired (bare DocumentView, headless tests, source view): degrade
+  // to a source-only fence so the query is readable and nothing is executed.
+  if (!resolver) {
+    return createElement(
+      'pre',
+      null,
+      createElement('code', { className: 'language-query' }, query.value),
+    );
+  }
+
+  const results = resolver.run(query.value);
+  return createElement(
+    'div',
+    { 'data-query': query.value },
+    results.length === 0
+      ? createElement('small', null, 'no matches')
+      : createElement(
+          'ul',
+          null,
+          results.map((result, index) =>
+            createElement(
+              'li',
+              { key: index },
+              createElement('a', { href: result.href ?? result.path }, result.title),
+            ),
+          ),
+        ),
+  );
+};
+
 // ---------------------------------------------------------------------------
 // Public registry + document view
 // ---------------------------------------------------------------------------
@@ -745,6 +812,8 @@ export const defaultRegistry: ComponentRegistry = {
   wikiLink: wikiLinkComponent,
   transclusion: transclusionComponent,
   cell: cellComponent,
+  callout: calloutComponent,
+  query: queryComponent,
 };
 
 /**

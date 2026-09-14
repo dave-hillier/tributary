@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { renderToString } from 'react-dom/server';
 import { createElement } from 'react';
-import { DocumentView, TransclusionContext, EditContext } from '@tributary/components';
-import type { TransclusionResolver, EditResolver } from '@tributary/components';
+import { DocumentView, TransclusionContext, EditContext, QueryContext } from '@tributary/components';
+import type { TransclusionResolver, EditResolver, QueryResolver } from '@tributary/components';
 import type { Document } from '@tributary/api';
 
 function renderDoc(root: Document['root']): string {
@@ -460,3 +460,80 @@ describe('in-place block editing', () => {
     expect(html).toContain('<h1>Title</h1>');
   });
 });
+
+describe('callout and query blocks (Stage 2)', () => {
+  it('renders a callout with its kind', () => {
+    const html = renderDoc({
+      type: 'root',
+      children: [
+        {
+          type: 'callout',
+          kind: 'note',
+          children: [
+            { type: 'paragraph', children: [{ type: 'text', value: 'Heads up' }] },
+          ],
+        },
+      ],
+    });
+    expect(html).toContain('data-callout="note"');
+    expect(html).toContain('class="callout callout-note"');
+    expect(html).toContain('Heads up');
+  });
+
+  it('renders a query as a source-only fence without a resolver', () => {
+    const html = renderDoc({
+      type: 'root',
+      children: [{ type: 'query', value: 'status: open' }],
+    });
+    expect(html).toContain('<pre><code class="language-query">status: open</code></pre>');
+  });
+
+  it('renders query result links from a QueryContext resolver', () => {
+    const resolver: QueryResolver = {
+      run: (query) =>
+        query === 'status: open'
+          ? [
+              { title: 'Task one', path: 'items/task-1.md' },
+              { title: 'Task two', path: 'items/task-2.md', href: '#task-2' },
+            ]
+          : [],
+    };
+    const doc: Document = {
+      id: 'doc-1',
+      path: 'index.md',
+      frontmatter: {},
+      root: { type: 'root', children: [{ type: 'query', value: 'status: open' }] },
+    };
+    const html = renderToString(
+      createElement(
+        QueryContext.Provider,
+        { value: resolver },
+        createElement(DocumentView, { document: doc }),
+      ),
+    );
+    expect(html).toContain('data-query="status: open"');
+    expect(html).toContain('<a href="items/task-1.md">Task one</a>');
+    expect(html).toContain('<a href="#task-2">Task two</a>');
+  });
+
+  it('renders no matches when the resolver returns an empty list', () => {
+    const resolver: QueryResolver = { run: () => [] };
+    const doc: Document = {
+      id: 'doc-1',
+      path: 'index.md',
+      frontmatter: {},
+      root: { type: 'root', children: [{ type: 'query', value: 'nope' }] },
+    };
+    const html = renderToString(
+      createElement(
+        QueryContext.Provider,
+        { value: resolver },
+        createElement(DocumentView, { document: doc }),
+      ),
+    );
+    expect(html).toContain('data-query="nope"');
+    expect(html).toContain('<small>no matches</small>');
+    expect(html).not.toContain('<ul>');
+  });
+});
+
