@@ -50,4 +50,42 @@ describe('ReactiveHost', () => {
     const outs2 = await host.update(0, compileReactiveCell('const items = ["x"]', 'js'), { React: { createElement } });
     expect((outs2[1] as any).type).toBe('ul');
   });
+
+  it('exposes destructured declarations to downstream cells (finding 12)', async () => {
+    const compiled = compileReactiveCell('const { a, b: { c } } = { a: 1, b: { c: 2 } }; const [d = 3, ...rest] = [4, 5]', 'js');
+    expect(compiled.provided).toEqual(expect.arrayContaining(['a', 'c', 'd', 'rest']));
+
+    const host = hostOf([
+      { lang: 'js', source: 'const { a, b } = { a: 1, b: 2 }' },
+      { lang: 'js', source: 'a + b' },
+    ]);
+    const outs = await host.evaluate({ React: { createElement } });
+    expect(outs[1]).toBe(3);
+  });
+
+  it('reports a circular dependency instead of leaving cells undefined (finding 13)', async () => {
+    const host = hostOf([
+      { lang: 'js', source: 'const a = b + 1' },
+      { lang: 'js', source: 'const b = a + 1' },
+    ]);
+    const outs = await host.evaluate({ React: { createElement } });
+    expect(outs[0]).toBeInstanceOf(Error);
+    expect(outs[1]).toBeInstanceOf(Error);
+    expect((outs[0] as Error).message).toMatch(/Circular dependency/);
+    expect((outs[1] as Error).message).toMatch(/Circular dependency/);
+  });
+
+  it('applies the capability lock on the live runtime path (finding 3)', async () => {
+    const api = { marker: 1 };
+    const host = hostOf([
+      {
+        lang: 'js',
+        source:
+          'const probe = [typeof window, typeof document, typeof fetch, typeof localStorage].join("/")' +
+          ' + "|" + Object.isFrozen(__scope.api); probe',
+      },
+    ]);
+    const outs = await host.evaluate({ React: { createElement }, api, components: {} });
+    expect(outs[0]).toBe('undefined/undefined/undefined/undefined|true');
+  });
 });

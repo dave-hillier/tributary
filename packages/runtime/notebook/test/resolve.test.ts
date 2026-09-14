@@ -5,6 +5,7 @@ import {
   compileCell,
   compileDocument,
   compileReactiveCell,
+  compileReactiveCellAsync,
   evaluateCell,
   ReactiveHost,
   type ResolveOptions,
@@ -52,6 +53,17 @@ describe('cell module resolution (finding 11)', () => {
     };
     expect(typeof out.type).toBe('function');
     expect(out.props.n).toBe(7);
+  });
+
+  it('resolves imports through the async IPC path (finding 18)', async () => {
+    const compiled = await compileReactiveCellAsync(
+      'import { add } from "./fixtures/fake-lib"\nadd(20, 22)',
+      'ts',
+      resolve
+    );
+    const host = new ReactiveHost([compiled]);
+    const outs = await host.evaluate({ React: { createElement } });
+    expect(outs[0]).toBe(42);
   });
 
   it('resolves imports inside compileDocument while sharing declarations', async () => {

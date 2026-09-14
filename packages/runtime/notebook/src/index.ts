@@ -6,6 +6,7 @@ export {
   compileCell,
   compileDocument,
   compileReactiveCell,
+  compileReactiveCellAsync,
   evaluateCell,
   type CellLanguage,
   type CompiledCell,

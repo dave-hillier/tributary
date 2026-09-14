@@ -1,7 +1,9 @@
 import { transformSync } from 'esbuild';
 import { parse } from 'acorn';
-import { resolveImports, type ResolveOptions } from './resolve.js';
-import type { CompiledReactiveCell } from './reactive.js';
+import { resolveImports, resolveImportsAsync, type ResolveOptions, type ResolvedCell } from './resolve.js';
+import { withScopeLock, type CompiledReactiveCell } from './reactive.js';
+
+export { withScopeLock };
 
 export type CellLanguage = 'js' | 'ts' | 'jsx' | 'tsx';
 
@@ -66,34 +68,7 @@ export function shimImports(source: string): string {
   return shimmed.replace(APP_SIDE_EFFECT_RE, '');
 }
 
-/**
- * Capability boundary preamble (ADR-004): cells execute with ONLY React and
- * __scope (api/components) in scope. Shadowing the ambient runtime binding
- * names as local undefineds denies the ambient power set — process, require,
- * module hooks, the browser globals and globalThis itself — so a cell must go
- * through the capability API to touch the host. (Workspaces are trusted in v1
- * per arch §8; this seals the API seam, not a hostile sandbox.)
- */
-const AMBIGUOUS_NAMES = [
-  'process', 'require', 'module', 'exports', 'Buffer', 'global',
-  '__dirname', '__filename', 'window', 'document', 'globalThis', 'fetch',
-  'XMLHttpRequest', 'WebSocket', 'navigator', 'location',
-  'history', 'localStorage', 'sessionStorage', 'electron',
-];
 
-const SCOPE_LOCK_PREFIX =
-  'const ' +
-  AMBIGUOUS_NAMES.join('= undefined, ') +
-  '= undefined;\n' +
-  // The capability surface itself is sealed: a cell cannot hot-swap the API
-  // it was granted.
-  'Object.freeze(__scope.api);\n' +
-  'Object.freeze(__scope.components);\n';
-
-/** Wrap a single AsyncFunction body in the capability-boundary preamble. */
-export function withScopeLock(body: string): string {
-  return SCOPE_LOCK_PREFIX + body;
-}
 
 export interface DocumentCell {
   lang: CellLanguage;
@@ -182,6 +157,96 @@ function collectIdentifiers(js: string): Set<string> {
   return names;
 }
 
+/** Names bound by a variable declarator's binding pattern (destructuring aware). */
+function bindingNames(node: any, out: string[] = []): string[] {
+  if (!node || typeof node !== 'object') return out;
+  switch (node.type) {
+    case 'Identifier':
+      out.push(node.name as string);
+      break;
+    case 'ObjectPattern':
+      for (const prop of node.properties) {
+        if (prop.type === 'RestElement') bindingNames(prop.argument, out);
+        else bindingNames(prop.value, out);
+      }
+      break;
+    case 'ArrayPattern':
+      for (const el of node.elements) bindingNames(el, out);
+      break;
+    case 'AssignmentPattern':
+      bindingNames(node.left, out);
+      break;
+    case 'RestElement':
+      bindingNames(node.argument, out);
+      break;
+    default:
+      break;
+  }
+  return out;
+}
+
+/** Build the scope-wiring body from an already-resolved cell (no esbuild). */
+function assembleReactiveCell(resolved: ResolvedCell): CompiledReactiveCell {
+  const refs = collectIdentifiers(resolved.body);
+  const provided: string[] = [];
+
+  let ast;
+  try {
+    ast = parse(resolved.body, { ecmaVersion: 'latest', sourceType: 'module' });
+  } catch {
+    ast = null;
+  }
+
+  let body: string;
+  if (!ast || ast.body.length === 0) {
+    body = 'with (scope) { return undefined; }';
+  } else {
+    let out = 'with (scope) {';
+    let cursor = 0;
+    const stmts = ast.body;
+    for (let idx = 0; idx < stmts.length; idx++) {
+      const stmt = stmts[idx]!;
+      out += resolved.body.slice(cursor, stmt.start);
+      if (stmt.type === 'VariableDeclaration') {
+        out += resolved.body.slice(stmt.start, stmt.end);
+        const names = stmt.declarations.flatMap((d) => bindingNames(d.id));
+        for (const n of names) {
+          provided.push(n);
+          refs.delete(n);
+          out += '\nscope.' + n + ' = ' + n + ';';
+        }
+      } else if (idx === stmts.length - 1 && stmt.type === 'ExpressionStatement') {
+        out += 'return (' + resolved.body.slice(stmt.expression.start, stmt.expression.end) + ');';
+      } else {
+        out += resolved.body.slice(stmt.start, stmt.end);
+      }
+      cursor = stmt.end;
+    }
+    out += '}';
+    body = out;
+  }
+
+  return { provided, refs: [...refs], js: resolved.preamble + '\n' + body };
+}
+
+function transformCell(source: string, lang: CellLanguage): string {
+  return transformSync(shimImports(source), {
+    loader: lang,
+    jsx: 'transform',
+    jsxFactory: 'React.createElement',
+    jsxFragment: 'React.Fragment',
+  }).code;
+}
+
+function errorCell(e: unknown): CompiledReactiveCell {
+  const msg = e instanceof Error ? e.message : String(e);
+  return {
+    provided: [],
+    refs: [],
+    js: 'throw new Error(' + JSON.stringify('Cell compile error: ' + msg) + ');',
+  };
+}
+
 /**
  * Compile one cell to its self-contained JS body plus dependency metadata
  * (esbuild; main process only). The returned object is fully serializable so a
@@ -195,64 +260,30 @@ function collectIdentifiers(js: string): Set<string> {
  */
 export function compileReactiveCell(source: string, lang: CellLanguage, options: ResolveOptions = {}): CompiledReactiveCell {
   try {
-    const js = transformSync(shimImports(source), {
-      loader: lang,
-      jsx: 'transform',
-      jsxFactory: 'React.createElement',
-      jsxFragment: 'React.Fragment',
-    }).code;
-    const resolved = resolveImports(js, options);
+    const resolved = resolveImports(transformCell(source, lang), options);
     if (resolved.unresolved) throw new Error('unresolved import');
-
-    const refs = collectIdentifiers(resolved.body);
-    const provided: string[] = [];
-
-    let ast;
-    try {
-      ast = parse(resolved.body, { ecmaVersion: 'latest', sourceType: 'module' });
-    } catch {
-      ast = null;
-    }
-
-    let body: string;
-    if (!ast || ast.body.length === 0) {
-      body = 'with (scope) { return undefined; }';
-    } else {
-      let out = 'with (scope) {';
-      let cursor = 0;
-      const stmts = ast.body;
-      for (let idx = 0; idx < stmts.length; idx++) {
-        const stmt = stmts[idx]!;
-        out += resolved.body.slice(cursor, stmt.start);
-        if (stmt.type === 'VariableDeclaration') {
-          out += resolved.body.slice(stmt.start, stmt.end);
-          const names = stmt.declarations
-            .filter((d) => d.id.type === 'Identifier')
-            .map((d) => (d.id as any).name as string);
-          for (const n of names) {
-            provided.push(n);
-            refs.delete(n);
-            out += '\nscope.' + n + ' = ' + n + ';';
-          }
-        } else if (idx === stmts.length - 1 && stmt.type === 'ExpressionStatement') {
-          out += 'return (' + resolved.body.slice(stmt.expression.start, stmt.expression.end) + ');';
-        } else {
-          out += resolved.body.slice(stmt.start, stmt.end);
-        }
-        cursor = stmt.end;
-      }
-      out += '}';
-      body = out;
-    }
-
-    return { provided, refs: [...refs], js: resolved.preamble + '\n' + body };
+    return assembleReactiveCell(resolved);
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    return {
-      provided: [],
-      refs: [],
-      js: 'throw new Error(' + JSON.stringify('Cell compile error: ' + msg) + ');',
-    };
+    return errorCell(e);
+  }
+}
+
+/**
+ * Async twin of compileReactiveCell for the IPC path: the import bundle runs on
+ * esbuild's async API, so the main process stays responsive while a cell with
+ * imports compiles.
+ */
+export async function compileReactiveCellAsync(
+  source: string,
+  lang: CellLanguage,
+  options: ResolveOptions = {}
+): Promise<CompiledReactiveCell> {
+  try {
+    const resolved = await resolveImportsAsync(transformCell(source, lang), options);
+    if (resolved.unresolved) throw new Error('unresolved import');
+    return assembleReactiveCell(resolved);
+  } catch (e) {
+    return errorCell(e);
   }
 }
 
