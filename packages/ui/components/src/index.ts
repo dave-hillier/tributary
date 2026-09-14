@@ -286,10 +286,37 @@ export interface EditResolver {
 export const EditContext = createContext<EditResolver | null>(null);
 
 /**
+ * Elements that handle their own clicks, and so must never be read as "edit
+ * this block". Links and the cell controls inside a transclusion both live
+ * under a block that is itself click-to-edit; without this, clicking a control
+ * inside an embed would swap the enclosing block for an editor and replace —
+ * destroying — the embedded document.
+ */
+const SELF_HANDLING_SELECTOR = [
+  'a',
+  'button',
+  'input',
+  'textarea',
+  'select',
+  'summary',
+  '[contenteditable="true"]',
+  '[data-cell]',
+  '[data-transclusion-embed]',
+].join(', ');
+
+/** True when the click belongs to something nested, not to the block itself. */
+function targetHandlesOwnClick(target: EventTarget | null): boolean {
+  const el = target as HTMLElement | null;
+  return el !== null && typeof el.closest === 'function' && el.closest(SELF_HANDLING_SELECTOR) !== null;
+}
+
+/**
  * Wraps a block-level text node (paragraph, heading, list item, blockquote,
  * table cell) so it can be edited in place: clicking it swaps the rendered
  * block for a textarea pre-filled with its Markdown source. Commits on blur or
- * Cmd/Ctrl+Enter, cancels on Escape. Link clicks bubble through untouched.
+ * Cmd/Ctrl+Enter, cancels on Escape. Clicks owned by nested content — links and
+ * interactive controls, including everything inside a transclusion — pass
+ * through untouched.
  */
 function EditableBlock(props: {
   node: Node;
@@ -318,8 +345,8 @@ function EditableBlock(props: {
         'data-editable': props.node.type,
         title: 'Click to edit',
         onClick: (e: MouseEvent<HTMLElement>) => {
-          // Let link clicks (wiki links, transclusions) pass through unchanged.
-          if ((e.target as HTMLElement).closest('a')) return;
+          // Let nested links, controls and embedded content handle their own clicks.
+          if (targetHandlesOwnClick(e.target)) return;
           e.stopPropagation();
           setDraft(source);
           setEditing(true);
@@ -397,7 +424,8 @@ function ProseMirrorEditableBlock(props: {
         'data-editable': props.node.type,
         title: 'Click to edit',
         onClick: (e: MouseEvent<HTMLElement>) => {
-          if ((e.target as HTMLElement).closest('a')) return;
+          // Let nested links, controls and embedded content handle their own clicks.
+          if (targetHandlesOwnClick(e.target)) return;
           e.stopPropagation();
           setEditing(true);
         },

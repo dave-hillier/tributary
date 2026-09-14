@@ -68,6 +68,25 @@ try {
   const pendingCells = await page.locator('figure[data-cell][data-status="pending"]').count();
   check('transcluded cells evaluate', cellCount === 5 && pendingCells === 0, 'cells=' + cellCount + ' pending=' + pendingCells);
 
+  // A cell reached through a transclusion sits inside a click-to-edit block
+  // (`![[notes/hello]]` parses as a paragraph). Clicking its Edit control must
+  // open that cell's editor, not swap the enclosing paragraph for its own
+  // editor — which would replace and destroy the embedded document.
+  const embedded = page.locator('[data-transclusion-embed] figure[data-cell]').first();
+  await embedded.locator('button.cell-edit-toggle').click();
+  await page.waitForTimeout(400);
+  check(
+    'a control inside a transclusion does not destroy the embed',
+    (await page.locator('[data-transclusion-embed]').count()) === 1 &&
+      (await page.locator('[data-transclusion-embed] textarea.cell-editor').count()) === 1 &&
+      (await page.locator('textarea.block-editor').count()) === 0,
+    'embeds=' + (await page.locator('[data-transclusion-embed]').count()) +
+      ' cellEditors=' + (await page.locator('textarea.cell-editor').count()) +
+      ' blockEditors=' + (await page.locator('textarea.block-editor').count()),
+  );
+  await embedded.locator('button.cell-edit-toggle').click(); // close it again
+  await page.waitForTimeout(200);
+
   // Notebook host lifecycle: leaving a document disposes its hosts, so coming
   // back must rebuild and re-evaluate them. A lost or double-disposed host shows
   // up here as cells stuck pending.
