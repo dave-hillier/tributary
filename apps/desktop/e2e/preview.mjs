@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { WorkspaceService } from '../dist/main/workspace-service.js';
 import { createDemoWorkspace } from '@tributary/workspace';
+import { PRELOAD_METHODS } from './preload-methods.mjs';
 
 /**
  * Live browser preview of the Tributary renderer.
@@ -31,13 +32,7 @@ execFileSync('git', ['init', '--bare', '-q', bare]);
 await service.addRemote(bare);
 
 // Allowed API surface (mirrors apps/desktop/src/preload.ts).
-const METHODS = new Set([
-  'getDocument', 'listDocuments', 'saveDocument', 'history', 'resolveLink',
-  'backlinks', 'diff', 'search', 'listWorkItems', 'updateWorkItem',
-  'createWorkItem', 'createProblem', 'diagnostics', 'renameDocument', 'addRemote',
-  'sync', 'evaluateDocument',
-  'updateCell',
-]);
+const METHODS = new Set(PRELOAD_METHODS);
 
 const SHIM = `<script>
 window.tributary = new Proxy({}, {

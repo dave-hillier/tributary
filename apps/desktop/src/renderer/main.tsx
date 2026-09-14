@@ -1,4 +1,4 @@
-import React, { StrictMode, Fragment, useEffect, useRef, useState } from 'react';
+import React, { StrictMode, Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent, MouseEvent, ReactElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { DocumentView, CellContext, TransclusionContext, EditContext } from '@tributary/components';
@@ -10,7 +10,7 @@ import { findSection, nodeSource, replaceNodeSource } from '@tributary/markdown'
 import CodeMirror from '@uiw/react-codemirror';
 import { markdown } from '@codemirror/lang-markdown';
 import type { Document, NewWorkItem, WorkItem, Cell } from '@tributary/api';
-import { byUrgency, formatRef, STATUSES, type Diagnostic } from '@tributary/ontology';
+import { byUrgency, documentType, formatRef, STATUSES, type Diagnostic } from '@tributary/ontology';
 import {
   DEFAULT_SORT,
   documentHref,
@@ -19,6 +19,9 @@ import {
   serializeRoute,
 } from './url-state';
 import type { BoardFilters, Pane, RouteState, SortState, View } from './url-state';
+import { createAutosave, type Autosave } from './autosave';
+import { collectCells, type CollectedCell } from './collect-cells';
+import { kindLabel } from './document-label';
 import './styles.css';
 
 interface HistoryEntry {
@@ -30,6 +33,10 @@ interface HistoryEntry {
 interface SaveResult {
   commit: string | null;
   changed: boolean;
+  /** The reparsed document when the write changed it (e.g. a merge or backfill). */
+  document?: Document;
+  /** True when a stale base was resolved by three-way merge. */
+  merged: boolean;
 }
 
 interface TributaryApi {
@@ -50,7 +57,12 @@ interface TributaryApi {
   addRemote: (url: string, name?: string) => Promise<void>;
   sync: () => Promise<string>;
   compileDocument: (cells: { lang: string; source: string }[]) => Promise<CompiledReactiveCell[]>;
-  updateCell: (docId: string, cellIndex: number, source: string, lang: string) => Promise<CompiledReactiveCell>;
+  updateCell: (
+    docId: string,
+    cellIndex: number,
+    source: string,
+    lang: string
+  ) => Promise<{ compiled: CompiledReactiveCell; document: Document }>;
   runWeeklyReport: () => Promise<RunJobOutcome>;
   listJobBranches: () => Promise<string[]>;
   mergeJobBranch: (branch: string) => Promise<void>;
@@ -60,17 +72,6 @@ declare global {
   interface Window {
     tributary: TributaryApi;
   }
-}
-
-function collectCells(doc: Document): Cell[] {
-  const out: Cell[] = [];
-  const walk = (n: unknown): void => {
-    const node = n as { type?: string; children?: unknown[] };
-    if (node.type === 'cell') out.push(node as unknown as Cell);
-    if (node.children) for (const c of node.children) walk(c);
-  };
-  walk(doc.root);
-  return out;
 }
 
 /** Map a cell's evaluated value to a live render node + error flag. */
@@ -89,11 +90,6 @@ function outputToNode(value: unknown): CellRenderResult {
 
 function titleOf(doc: Document): string {
   return doc.frontmatter.title ?? doc.id;
-}
-
-function kindLabel(doc: Document): string {
-  if (doc.frontmatter.kind === 'work-item') return doc.frontmatter.status ?? 'work-item';
-  return doc.frontmatter.kind ?? 'note';
 }
 
 /**
@@ -276,8 +272,11 @@ function App() {
   const [swimlaneField, setSwimlaneField] = useState(initialRoute?.swimlane ?? '');
   const [dragCol, setDragCol] = useState<string | null>(null);
   const [overCol, setOverCol] = useState<string | null>(null);
-  const autosaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const autosaveRef = useRef<Autosave | null>(null);
+  const currentRef = useRef<Document | null>(null);
   const lastSavedSource = useRef('');
+  const sourceRef = useRef('');
+  const cellOwnerRef = useRef<Map<Cell, CollectedCell>>(new Map());
   // URL routing: whether a fetch is in flight (suppress a stale path write), the
   // latest loader for popstate, the route currently being applied from the URL,
   // the last structural route, and the hash we last wrote (avoid echo loops).
@@ -325,19 +324,30 @@ function App() {
     setCellResults(map);
   };
 
+  /** Rebuilt only when the document set changes, not on every keystroke. */
+  const transclusionResolver = useMemo(() => makeTransclusionResolver(docs), [docs]);
+
   const load = async (id: string): Promise<void> => {
+    // A pending autosave belongs to the document being left, not the next one.
+    autosaveRef.current?.cancel();
     setLoading(true);
     try {
       const d = await window.tributary.getDocument(id);
       if (d) {
         if (id !== current?.id) setSavedMsg('');
         setCurrent(d);
+        currentRef.current = d;
         setSource(d.source ?? '');
+        sourceRef.current = d.source ?? '';
         lastSavedSource.current = d.source ?? '';
         setHistory(await window.tributary.history(id).catch(() => []));
         setBacklinks(await window.tributary.backlinks(id).catch(() => []));
         setDiff(await window.tributary.diff(id).catch(() => ''));
-        const cells = collectCells(d);
+        // Cells in a transcluded document are part of the same visible
+        // document, so collect them too and remember who owns each one.
+        const collected = collectCells(d, (target, heading) => transclusionResolver.resolve(target, heading));
+        cellOwnerRef.current = new Map(collected.map((c) => [c.cell, c]));
+        const cells = collected.map((c) => c.cell);
         cellsRef.current = cells;
         await evaluateCells(cells);
       }
@@ -468,24 +478,38 @@ function App() {
     }
   };
 
-  const autosave = async (): Promise<void> => {
-    if (!current || source === lastSavedSource.current) return;
-    try {
-      const result = await window.tributary.saveDocument({ ...current, source }, 'autosave');
-      lastSavedSource.current = source;
-      setSavedMsg(result.changed ? 'Autosaved ' + (result.commit ?? '').slice(0, 7) : 'No changes');
-    } catch (e) {
-      setSavedMsg('Autosave failed: ' + String(e));
-    }
+  // The debounced autosave always saves the value that triggered it; reading
+  // the render's `source` here was the stale-closure data-loss bug. The saver
+  // reads the live document from a ref, and `load` cancels a pending save when
+  // the user navigates, so it can never write one document's text to another.
+  const autosaveSave = (v: string): void => {
+    const doc = currentRef.current;
+    if (!doc || v === lastSavedSource.current) return;
+    void (async () => {
+      try {
+        const result = await window.tributary.saveDocument({ ...doc, source: v }, 'autosave');
+        if (result.merged && result.document) {
+          // A stale base was resolved by three-way merge; adopt the merged text
+          // so the next save cannot discard it.
+          currentRef.current = result.document;
+          lastSavedSource.current = result.document.source ?? v;
+          if (sourceRef.current === v) setSource(result.document.source ?? v);
+        } else {
+          lastSavedSource.current = v;
+        }
+        setSavedMsg(result.changed ? 'Autosaved ' + (result.commit ?? '').slice(0, 7) : 'No changes');
+      } catch (e) {
+        setSavedMsg('Autosave failed: ' + String(e));
+      }
+    })();
   };
+  if (!autosaveRef.current) autosaveRef.current = createAutosave(autosaveSave, 1000);
 
   const onSourceChange = (v: string): void => {
     setSource(v);
+    sourceRef.current = v;
     setSavedMsg('Unsaved changes…');
-    if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
-    autosaveTimer.current = setTimeout(() => {
-      void autosave();
-    }, 1000);
+    autosaveRef.current?.schedule(v);
   };
 
   // ⌘S / Ctrl-S checkpoint.
@@ -526,7 +550,9 @@ function App() {
     await loadWorkItems();
     if (current && current.id === id) {
       setCurrent(updated);
+      currentRef.current = updated;
       setSource(updated.source ?? '');
+      sourceRef.current = updated.source ?? '';
     }
   };
 
@@ -547,13 +573,21 @@ function App() {
   };
 
   const updateCell = async (cell: Cell, source: string): Promise<void> => {
-    if (!current) return;
+    const owner = cellOwnerRef.current.get(cell);
     const idx = cellsRef.current.indexOf(cell);
-    if (idx < 0) return;
-    const compiled = await window.tributary.updateCell(current.id, idx, source, cell.lang);
+    if (!owner || idx < 0) return;
+    const result = await window.tributary.updateCell(owner.docId, owner.index, source, cell.lang);
+    // The service reparses after the cell write; keep the open document's source
+    // and baseline in step so a later checkpoint cannot undo the cell edit.
+    if (owner.docId === currentRef.current?.id) {
+      currentRef.current = result.document;
+      lastSavedSource.current = result.document.source ?? lastSavedSource.current;
+      sourceRef.current = result.document.source ?? sourceRef.current;
+      setSource(result.document.source ?? '');
+    }
     const host = hostRef.current;
     if (!host) return;
-    const outs = await host.update(idx, compiled, rendererContext());
+    const outs = await host.update(idx, result.compiled, rendererContext());
     const map = new Map<Cell, CellRenderResult>();
     cellsRef.current.forEach((c, i) => map.set(c, outputToNode(outs[i])));
     setCellResults(map);
@@ -1257,7 +1291,7 @@ function App() {
                   <div data-scroll>
                     <div data-doc={current.id} onClick={onDocClick}>
                       <CellContext.Provider value={cellResolver}>
-                        <TransclusionContext.Provider value={makeTransclusionResolver(docs)}>
+                        <TransclusionContext.Provider value={transclusionResolver}>
                           <EditContext.Provider value={editResolver}>
                             <DocumentView document={current} />
                           </EditContext.Provider>
@@ -1297,7 +1331,7 @@ function App() {
             <h4>linked from</h4>
             <div data-link-list>
               {backlinks.length === 0 ? (
-                <small style={{ padding: '3px 12px' }}>none</small>
+                <small>none</small>
               ) : (
                 backlinks.map((b) => (
                   <a
@@ -1388,8 +1422,8 @@ function App() {
             <dl data-frontmatter>
               <dt>id</dt>
               <dd>{current?.id}</dd>
-              <dt>kind</dt>
-              <dd>{current?.frontmatter.kind ?? '—'}</dd>
+              <dt>type</dt>
+              <dd>{current ? (documentType(current.frontmatter) ?? '—') : '—'}</dd>
               <dt>cells</dt>
               <dd>{cellsRef.current.length}</dd>
             </dl>

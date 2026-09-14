@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { WorkspaceService } from '../dist/main/workspace-service.js';
 import { createDemoWorkspace } from '@tributary/workspace';
+import { PRELOAD_METHODS } from './preload-methods.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const BUNDLE = join(here, '../dist/renderer-bundle');
@@ -16,12 +17,7 @@ await createDemoWorkspace(root);
 const service = new WorkspaceService();
 await service.open(root);
 
-const METHODS = new Set([
-  'getDocument', 'listDocuments', 'saveDocument', 'history', 'resolveLink', 'backlinks', 'diff',
-  'search', 'listWorkItems', 'updateWorkItem', 'createWorkItem', 'createProblem', 'diagnostics',
-  'renameDocument', 'addRemote', 'sync', 'compileDocument', 'updateCell', 'runWeeklyReport',
-  'listJobBranches', 'mergeJobBranch',
-]);
+const METHODS = new Set(PRELOAD_METHODS);
 const SHIM = "<script>window.tributary=new Proxy({},{get(_t,m){if(typeof m!=='string')return undefined;return(...a)=>fetch('/api/'+m,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(a)}).then(async r=>{if(!r.ok)throw new Error((await r.text())||r.statusText);return r.json();});}});</script>";
 
 const server = createServer(async (req, res) => {

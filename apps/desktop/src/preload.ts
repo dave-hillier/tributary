@@ -13,7 +13,10 @@ interface HistoryEntry {
 const api = {
   getDocument: (id: string): Promise<Document | null> => ipcRenderer.invoke('workspace:getDocument', id),
   listDocuments: (): Promise<Document[]> => ipcRenderer.invoke('workspace:listDocuments'),
-  saveDocument: (doc: Document, message?: string): Promise<{ commit: string | null; changed: boolean }> =>
+  saveDocument: (
+    doc: Document,
+    message?: string
+  ): Promise<{ commit: string | null; changed: boolean; document?: Document; merged: boolean }> =>
     ipcRenderer.invoke('workspace:saveDocument', doc, message),
   history: (id: string): Promise<HistoryEntry[]> => ipcRenderer.invoke('workspace:history', id),
   resolveLink: (target: string): Promise<Document | null> => ipcRenderer.invoke('workspace:resolveLink', target),
@@ -34,7 +37,13 @@ const api = {
     ipcRenderer.invoke('workspace:addRemote', url, name),
   sync: (): Promise<string> => ipcRenderer.invoke('workspace:sync'),
   compileDocument: (cells: { lang: string; source: string }[]): Promise<CompiledReactiveCell[]> => ipcRenderer.invoke('workspace:compileDocument', cells),
-  updateCell: (docId: string, cellIndex: number, source: string, lang: string): Promise<CompiledReactiveCell> => ipcRenderer.invoke('workspace:updateCell', docId, cellIndex, source, lang),
+  updateCell: (
+    docId: string,
+    cellIndex: number,
+    source: string,
+    lang: string
+  ): Promise<{ compiled: CompiledReactiveCell; document: Document }> =>
+    ipcRenderer.invoke('workspace:updateCell', docId, cellIndex, source, lang),
   runWeeklyReport: (): Promise<RunJobOutcome> => ipcRenderer.invoke('workspace:runWeeklyReport'),
   listJobBranches: (): Promise<string[]> => ipcRenderer.invoke('workspace:listJobBranches'),
   mergeJobBranch: (branch: string): Promise<void> => ipcRenderer.invoke('workspace:mergeJobBranch', branch),

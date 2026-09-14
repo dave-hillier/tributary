@@ -25,7 +25,7 @@ describe('cell imports render in-process (finding 11)', () => {
       await service.open(root);
 
       // Compile in main (esbuild), evaluate here (renderer process, full React).
-      const compiled = service.compileDocument([
+      const compiled = await service.compileDocument([
         { lang: 'tsx', source: 'import { Strong } from "./lib/strong"\nconst who = "world";\n<Strong name={who} />' },
       ]);
       const host = new ReactiveHost(compiled);

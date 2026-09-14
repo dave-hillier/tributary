@@ -713,6 +713,10 @@ small { color: var(--muted); font-size: inherit; }
   color: var(--ink-2);
 }
 
+#root > [data-cols] > aside[data-side="right"] [data-link-list] small {
+  padding: 3px 12px;
+}
+
 #root > [data-cols] > aside[data-side="right"] [data-link-list] a:hover { background: var(--sunk); }
 
 #root > [data-cols] > aside[data-side="right"] ol[data-history] {

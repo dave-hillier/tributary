@@ -97,9 +97,14 @@ describe('Stage 1 slice: the Git round-trip', () => {
       expect(renamed.path).toBe('items/write-tests.md');
       expect(renamed.frontmatter.id).toBe('task-2');
       expect(service.listWorkItems().find((w) => w.id === 'task-2')?.title).toBe('Write tests');
+      // A rename target cannot escape the workspace root (finding 15).
+      await expect(service.renameDocument('task-2', '../escape.md')).rejects.toThrow(/escapes the workspace/);
 
-      // Per-cell edit persists to the .md (and commits).
-      await service.updateCell('index', 0, 'const greeting = "Persisted greeting"', 'js');
+      // Per-cell edit persists, rebuilds the index and returns the reparsed
+      // document (findings 8/9), so the renderer never keeps a pre-edit source.
+      const cellEdit = await service.updateCell('index', 0, 'const greeting = "Persisted greeting"', 'js');
+      expect(cellEdit.compiled.provided).toContain('greeting');
+      expect(cellEdit.document.source).toContain('Persisted greeting');
       const reloaded = service.getDocument('index');
       expect(reloaded!.source).toContain('Persisted greeting');
       expect(reloaded!.source).not.toContain('Tributary renders TSX cells here.');
@@ -108,6 +113,10 @@ describe('Stage 1 slice: the Git round-trip', () => {
       const inbound = service.backlinks('task-1').map((d) => d.id);
       expect(inbound).toContain('index');
       expect(inbound).toContain('notes/hello');
+
+      // Reopening releases the previous SQLite handle rather than leaking it.
+      await service.open(root);
+      expect(service.getDocument('index')).toBeTruthy();
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

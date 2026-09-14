@@ -1,12 +1,12 @@
 import { mkdtempSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { tmpdir } from 'node:os';
-import { join, dirname } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Workspace, createDemoWorkspace, type CommitInfo } from '@tributary/workspace';
 import { SqliteIndex } from '@tributary/index';
 import { parseMarkdown, updateFrontmatter, replaceCellSource } from '@tributary/markdown';
-import { compileReactiveCell, type CompiledReactiveCell, type CellLanguage, type ResolveOptions } from '@tributary/notebook';
+import { compileReactiveCellAsync, type CompiledReactiveCell, type CellLanguage, type ResolveOptions } from '@tributary/notebook';
 import { runJob, weeklyReport, type RunJobOutcome } from '@tributary/jobs';
 import type { Document, DocumentId, NewWorkItem, WorkItem } from '@tributary/api';
 import { formatRef, parseRef, type Diagnostic } from '@tributary/ontology';
@@ -47,6 +47,9 @@ export class WorkspaceService {
 
   /** Open a freshly-seeded demo workspace (ephemeral, for the slice). */
   async openDemo(): Promise<void> {
+    // Release the previous handle before replacing it, or it leaks and can block
+    // a pending worktree removal (finding 10).
+    this.index?.close();
     const root = mkdtempSync(join(tmpdir(), 'tributary-demo-'));
     const workspace = await createDemoWorkspace(root);
     this.workspace = workspace;
@@ -55,6 +58,7 @@ export class WorkspaceService {
   }
 
   async open(rootPath: string): Promise<void> {
+    this.index?.close();
     const workspace = await Workspace.open(rootPath);
     this.workspace = workspace;
     this.index = new SqliteIndex(join(rootPath, '.tributary', 'index.db'));
@@ -84,7 +88,10 @@ export class WorkspaceService {
       .filter((d): d is Document => d !== undefined);
   }
 
-  async saveDocument(doc: Document, message?: string): Promise<{ commit: string | null; changed: boolean }> {
+  async saveDocument(
+    doc: Document,
+    message?: string
+  ): Promise<{ commit: string | null; changed: boolean; document?: Document; merged: boolean }> {
     const workspace = this.workspace;
     const index = this.index;
     if (!workspace || !index) throw new Error('Workspace not open');
@@ -137,24 +144,37 @@ export class WorkspaceService {
    * components cannot cross the IPC boundary, so evaluation lives where React
    * renders (finding 11).
    */
-  compileDocument(cells: { lang: string; source: string }[]): CompiledReactiveCell[] {
-    return cells.map((c) =>
-      compileReactiveCell(c.source, c.lang as CellLanguage, this.resolveOptions())
+  async compileDocument(cells: { lang: string; source: string }[]): Promise<CompiledReactiveCell[]> {
+    // Resolve each cell's imports on esbuild's async API, concurrently, so the
+    // main process event loop is never blocked by a synchronous bundle
+    // (finding 18).
+    return Promise.all(
+      cells.map((c) => compileReactiveCellAsync(c.source, c.lang as CellLanguage, this.resolveOptions()))
     );
   }
 
-  /** Persist a cell edit and recompile just that cell (finding 11). */
-  async updateCell(docId: string, cellIndex: number, source: string, lang: string): Promise<CompiledReactiveCell> {
+  /**
+   * Persist a cell edit and recompile just that cell (finding 11). Routes
+   * through saveDocument so the derived index is rebuilt, and returns the
+   * reparsed document so the renderer never keeps a pre-edit source.
+   */
+  async updateCell(
+    docId: string,
+    cellIndex: number,
+    source: string,
+    lang: string
+  ): Promise<{ compiled: CompiledReactiveCell; document: Document }> {
     const workspace = this.workspace;
     if (!workspace) throw new Error('Workspace not open');
     const doc = workspace.getDocument(docId);
     if (!doc || !doc.source) throw new Error('Document not found: ' + docId);
-    // Persist the cell edit into the .md and commit, then hand back the
-    // recompiled cell for the renderer to re-evaluate.
     const newFullSource = replaceCellSource(doc.source, cellIndex, source);
     const updatedDoc = parseMarkdown(newFullSource, { path: doc.path });
-    await workspace.save(updatedDoc, 'edit cell');
-    return compileReactiveCell(source, lang as CellLanguage, this.resolveOptions());
+    const result = await this.saveDocument(updatedDoc, 'edit cell');
+    return {
+      compiled: await compileReactiveCellAsync(source, lang as CellLanguage, this.resolveOptions()),
+      document: result.document ?? workspace.getDocument(docId) ?? updatedDoc,
+    };
   }
 
   async addRemote(url: string, name = 'origin'): Promise<void> {
@@ -175,6 +195,12 @@ export class WorkspaceService {
     const workspace = this.workspace;
     const index = this.index;
     if (!workspace || !index) throw new Error('Workspace not open');
+    // Containment: a rename target must stay inside the workspace root.
+    const root = workspace.ref.rootPath;
+    const rel = relative(root, resolve(root, newPath));
+    if (rel === '' || rel.startsWith('..') || isAbsolute(rel)) {
+      throw new Error('Rename target escapes the workspace: ' + newPath);
+    }
     await workspace.rename(id, newPath);
     index.rebuild(workspace.documents);
     return workspace.getDocument(id)!;
