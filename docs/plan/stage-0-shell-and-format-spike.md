@@ -4,8 +4,9 @@
 **Outcome:** Prove the local desktop boundary and the core content/runtime bets
 with one repository and no multi-user infrastructure.
 **Status:** ✅ complete — exit criteria pass and the suite is green at `e101911`
-(09-13). One runtime caveat remains: native Electron window launch is only proven
-headlessly; an `@electron/rebuild` + smoke pass is pending (see [`findings.md`](./findings.md)).
+(09-13). Native Electron launch is verified: `pnpm --filter app-desktop smoke`
+  proves the native ABI under Electron's bundled Node, and `smoke:window` boots
+  the real window, renderer and contextBridge.
 
 ## Goal
 
@@ -72,8 +73,8 @@ fixture tree.
 
 ## Known gaps
 
-See [`findings.md`](./findings.md). Round-trip was settled as a documented
-hybrid — verbatim cells/frontmatter + canonical prose (finding 1, ADR-001).
+Round-trip was settled as a documented hybrid — verbatim cells/frontmatter +
+canonical prose (ADR-001).
 The Electron ABI now verified: `pnpm --filter app-desktop smoke` rebuilds
 better-sqlite3 for the Electron ABI and proves it loads under Electron's
 bundled Node 20 (green). The remaining item is the native window launch

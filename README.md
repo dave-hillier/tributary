@@ -75,8 +75,7 @@ pnpm --filter app-desktop smoke:window   # window + contextBridge, needs a deskt
 - [Architecture proposal](git_native_markdown_notebook_architecture_v0_3.md) —
   why the system is shaped this way.
 - [`docs/plan/`](docs/plan/README.md) — the staged build plan (stages map to
-  end-to-end vertical slices), plus a living critical-review log in
-  [`findings.md`](docs/plan/findings.md).
+  end-to-end vertical slices).
 - [`docs/reference/`](docs/reference/frontmatter.md) — authoring reference:
   frontmatter keys, work-item vocabulary, references and diagnostics.
 - [`docs/adr/`](docs/adr/README.md) — decision records: Markdown dialect,
@@ -87,10 +86,10 @@ pnpm --filter app-desktop smoke:window   # window + contextBridge, needs a deskt
 
 ## Status
 
-Early. Stages 0–3 are implemented (Git-backed workspace, transclusion, reactive
-cells); Stage 4 onward is not. Cell execution is in-process for v1 — the
-ADR-004 worker/process boundary and sandboxing are not yet enforced. Open gaps
-are tracked honestly in [`docs/plan/findings.md`](docs/plan/findings.md).
+Early. Stages 0–4 are implemented (Git-backed workspace, transclusion, reactive
+cells, offline jobs); Stage 5 onward is not. Cell execution is in-process for
+v1 — the ADR-004 worker/process boundary and sandboxing are tracked as
+[Stage 7](docs/plan/stage-7-agent-review-and-hardening.md) hardening work.
 
 ## Licence
 

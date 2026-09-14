@@ -10,8 +10,8 @@ edit reactively with per-dependant invalidation, and persist back into the
 enforced (`57fe30b`): cells run behind a scope lock that denies ambient runtime
 powers and freezes the granted `api`/`components` surface. Cells execute in the
 app main process (compiled/evaluated there, results serialised to the
-renderer); full separate-process isolation remains a Stage 7 hardening item —
-see [`findings.md`](./findings.md).
+renderer); full separate-process isolation remains a
+[Stage 7](./stage-7-agent-review-and-hardening.md) hardening item.
 
 ## Goal
 
@@ -80,7 +80,7 @@ Markdown
 
 ### 3.1 One executable cell block (`@tributary/markdown`, `api`)
 - Replace `replotBlock`/`cellBlock` with a single `cell` block carrying
-  `lang` in {js,ts,jsx,tsx} (migration of current code; see findings.md).
+  `lang` in {js,ts,jsx,tsx} (migration of current code).
 - Settle how executability is marked (ADR-004 open question).
 
 ### 3.2 Cell compiler (`@tributary/notebook`, or new `@tributary/cell`)

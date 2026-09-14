@@ -16,7 +16,6 @@ authoritative for *why it is shaped this way*.
 docs/plan/
 ├── README.md                  <- this index + sequencing summary
 ├── package-boundaries.md      <- monorepo layout: packages, deps, build rules
-├── findings.md                <- critical review: gaps, risks, decisions needed
 ├── stage-0-shell-and-format-spike.md
 ├── stage-1-git-backed-workspace.md
 ├── stage-2-transclusion-and-blocks.md
@@ -31,9 +30,10 @@ docs/plan/
 architecture's package boundaries (§5) and concrete workspace packages. Read it
 before touching any code — every stage assumes this layout.
 
-[`findings.md`](./findings.md) is the living critical-review log: known gaps,
-risks and open decisions against the work committed so far. Check it before
-claiming a stage is done, and update it when a finding is resolved.
+A critical-review log used to live alongside these stages. On 2026-09-14 its
+findings were all resolved and the log was retired; the one architectural item
+that remained open (the ADR-004 worker/process boundary) is now tracked in the
+[Stage 7 plan](./stage-7-agent-review-and-hardening.md).
 
 Reference documentation — the authoring-facing description of what the format
 means, as opposed to why it was chosen — lives in
@@ -97,25 +97,25 @@ are written as their decisions are settled.
 
 ## Status
 
-Verified against the green suite as of `26e0f9c` (09-13):
+Stages 0, 1, 2, 3 and 4 are complete and green:
 
-- **Stages 0, 1, 2, 3 and 4 are complete** — cells compile (in the main process),
-  run, invalidate and persist, `import` bare/relative/default/namespace
-  modules, and evaluate in the renderer with full React so an imported component
-  (e.g. Replot) renders end-to-end (finding 11).
-- **Stage 4 (offline jobs + generated reports) is complete** — `@tributary/jobs`
-  runs revision-pinned jobs in an isolated `git worktree`, writes
-  provenance-tagged report Markdown to a `jobs/` branch, and the shell surfaces
-  a reviewable diff + merge.
-- The work-item **ontology is settled and implemented** (ADR-005, finding 15):
-  typed `entity:id` refs, `assignees` as a list, `project` as a resolved document
-  reference, numeric priority, first-class labels/tags/aliases/due, typed
-  relations in the index, and validation that reports rather than rejects. It
-  lives in `@tributary/ontology`.
-- Findings 6 (inline parser), 7 (SQLite ownership), 8 (test breadth), 11 (cell
-  module resolution + renderer-side evaluation), 12 (capability-import shim) and
-  14 (no notebook cost for plain docs) are resolved; the HTML render path is
-  hardened (arch §8). The Electron ABI is verified under Electron's bundled Node
-  (finding 4); only the window probe (`smoke:window`) needs a desktop session.
+- **Stages 0–3** — the desktop shell; the Git-backed workspace (wiki links, work
+  items, optimistic saves with a three-way merge); transclusion with cycle and
+  depth diagnostics; and reactive cells. Cells compile in the main process and
+  evaluate in the renderer with full React, so an imported component renders
+  end-to-end.
+- **Stage 2 blocks** — a small registry ships `callout` and `query` blocks;
+  tables are ordinary GFM and unknown blocks degrade to code fences.
+- **Stage 4** — revision-pinned offline jobs run in an isolated worktree and
+  write provenance-tagged reports to a `jobs/` branch with a review/merge
+  surface.
+- The work-item **ontology** is settled (ADR-005): typed refs, list assignees,
+  resolved project references, numeric priority, labels/tags/aliases/due,
+  template-based creation, and validation that reports rather than rejects.
+- The HTML render path is hardened; both `pnpm --filter app-desktop smoke`
+  (native ABI) and `smoke:window` (window + renderer + IPC) pass on a desktop
+  session.
 
-Remaining gaps are tracked in [`findings.md`](./findings.md).
+The remaining architectural gap is the ADR-004 worker/process boundary and cell
+sandboxing, tracked in
+[Stage 7](./stage-7-agent-review-and-hardening.md).

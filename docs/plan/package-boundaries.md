@@ -71,8 +71,8 @@ trees. `apps/desktop` is created at Stage 0.4 and does not exist yet.
 
 **Struck:** the "Replot bridge" / app component API (`Replot`, `WorkItem`,
 `Assignee`) earlier drafts credited `components` with is not a requirement —
-Replot is an ordinary React library a cell imports. What is missing is module
-resolution for cell imports; see finding 11 in [`findings.md`](./findings.md).
+Replot is an ordinary React library a cell imports. Module resolution for cell
+imports now lives in `@tributary/notebook` (`resolve.ts`).
 
 **Cells (ADR-004):** executable fenced blocks are a single `cell` node with
 `lang` in {js,ts,jsx,tsx}. Cells are compiled with esbuild in a worker/process

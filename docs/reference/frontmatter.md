@@ -17,10 +17,31 @@ in the app, never as a refusal to open, render or save.
 |---|---|---|
 | `id` | string | Stable identity, assigned on first create/import. Never derived from path or title; a rename does not change it. |
 | `title` | string | Display name. Falls back to the `id` when absent. |
-| `type` | `index` \| `wiki` \| `work-item` \| `project` \| `problem` \| `report` \| `note` | What the document is. Drives projection and rendering. |
+| `type` | `index` \| `wiki` \| `work-item` \| `project` \| `problem` \| `report` \| `template` \| `note` | What the document is. Drives projection and rendering. |
 | `aliases` | string list | Alternative names. Used for wiki-link resolution and rename resilience. |
 | `tags` | string list | Document-wide navigation and search vocabulary. |
-| `template` | string | Selects a presentation or report template. *(Declared; no consumer yet.)* |
+| `template` | string | Template this document came from: a `type: template` document's id, or `report` for generated reports. |
+
+Paths are not semantic: `items/`, `problems/`, `work/projects/`,
+`templates/` and `reports/` are conventions, not contracts. Identity is the
+frontmatter `id`, so a document can move without breaking links and the
+directory layout is not load-bearing.
+
+### Templates
+
+A document with `type: template` is a creation template. When a work item is
+created with a template selected, the template's frontmatter defaults (status,
+priority, labels, assignees) seed the new document, its body is copied with
+`{{title}}` substituted for the new title, and the new document records
+`template: <id>`. The demo workspace ships `templates/work-item.md`.
+
+### Declarative blocks
+
+Two safe blocks render without executing code: a **callout** is a blockquote
+whose first line is `[!TYPE]` (NOTE, TIP, IMPORTANT, WARNING or CAUTION), and a
+**query** block is a `query` fence whose body is `key: value` frontmatter
+matches, resolved by the shell into a result list. Any other block unknown to the
+registry degrades to a code fence.
 
 ## Work items
 

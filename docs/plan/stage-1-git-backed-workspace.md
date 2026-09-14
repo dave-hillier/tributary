@@ -70,6 +70,6 @@ list/board views, and close the edit → autosave → checkpoint → history loo
 The gaps flagged during review (findings 2, 3, 5) are now implemented: stable-ID
 assignment + backfill on save (`b656d0f`, `64e021b`), stale-base guard +
 three-way merge on divergent same-file edits (`d323ebb`, `a3be174`), and per-doc
-invalidation with no-op-commit skip (`d323ebb`). Open items remain in
-[`findings.md`](./findings.md) — chiefly the inline parser rewrite (finding 6)
-and the SQLite hybrid (finding 7).
+invalidation with no-op-commit skip (`d323ebb`). The inline parser was later
+rewritten as a micromark extension and the SQLite index reshaped around
+links/backlinks, FTS and the work-item projection; both review items are closed.

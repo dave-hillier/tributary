@@ -4,9 +4,8 @@
 **Outcome:** Make documents composable without turning the format into MDX.
 **Status:** ✅ complete — `![[target#heading]]` resolves through the index and
 embeds real content (whole doc or heading section) in the shell; cycles and
-depth are guarded with visible inline diagnostics; suite green at `185cf00`
-(09-13). The block registry adds no new native blocks: unknown nodes already
-degrade to code fences.
+depth are guarded with visible inline diagnostics. The block registry now ships
+`callout` and `query`; unknown nodes still degrade to code fences.
 
 ## Goal
 
@@ -22,9 +21,11 @@ links with embedded documents.
 - Transcluded content follows document renames/moves (ID-based).
 
 ### 2.2 Block registry (`@tributary/render`, `components`)
-- A deliberately small registry of safe declarative blocks (§4.1): callout,
-  table, query block. **Not built** (finding 13) — deferred; no exit criterion
-  depends on it.
+- A deliberately small registry of safe declarative blocks (§4.1): **callout**
+  (`> [!TYPE]` for NOTE/TIP/IMPORTANT/WARNING/CAUTION, rendered as
+  `div[data-callout="kind"]`) and **query** (a `query` fence of `key: value`
+  frontmatter matches, resolved by the shell and rendered as a result list).
+  Tables are ordinary GFM.
 - Blocks stay in the container/chrome ownership of React (§6.1).
 
 ### 2.3 Recursion & diagnostics (`@tributary/markdown`)

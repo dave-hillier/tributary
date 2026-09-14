@@ -24,6 +24,13 @@ invalidation; add import/export and repository health diagnostics.
 ### 7.3 Security & policy (`api`, `workspace`, `jobs`)
 - Permissions, execution policy, sandboxing and audit surfaces per the
   deployment model (§8, §4.3 trust table).
+- **ADR-004 worker/process boundary** (re-filed here from the 2026-09 review,
+  which is now retired). Cell execution currently runs in the renderer with a
+  defense-in-depth capability lock (`withScopeLock` shadows ambient globals and
+  freezes the injected scope), which seals the API seam but is not a
+  hostile-code sandbox. Move compilation/evaluation behind a local worker or
+  child process so execution failures and resource use cannot destabilise the
+  renderer, and add the capability-denial tests the exit criteria call for.
 - Health diagnostics + import/export. **Already in place:** ontology
   diagnostics (ADR-005 §9) report deprecated keys, unknown vocabulary and
   unresolvable references via `Workspace.diagnostics()`. Repository health here
