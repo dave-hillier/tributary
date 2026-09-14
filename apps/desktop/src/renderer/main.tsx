@@ -11,6 +11,14 @@ import CodeMirror from '@uiw/react-codemirror';
 import { markdown } from '@codemirror/lang-markdown';
 import type { Document, NewWorkItem, WorkItem, Cell } from '@tributary/api';
 import { byUrgency, formatRef, STATUSES, type Diagnostic } from '@tributary/ontology';
+import {
+  DEFAULT_SORT,
+  documentHref,
+  findDocumentByPath,
+  parseRoute,
+  serializeRoute,
+} from './url-state';
+import type { BoardFilters, Pane, RouteState, SortState, View } from './url-state';
 import './styles.css';
 
 interface HistoryEntry {
@@ -145,9 +153,6 @@ function relativeTime(date: string): string {
   return new Date(date).toLocaleDateString();
 }
 
-type View = 'document' | 'board' | 'list' | 'table';
-type Pane = 'rendered' | 'source' | 'diff';
-
 // Board columns come from the ontology's vocabulary (ADR-005), not a local
 // list; unknown statuses found in the corpus are appended so a document with a
 // novel status is still visible.
@@ -233,6 +238,8 @@ function WorkCard(props: {
 }
 
 function App() {
+  // The route the renderer was opened with (deep link / reload / back-forward).
+  const [initialRoute] = useState<RouteState | null>(() => parseRoute(window.location.hash));
   const [docs, setDocs] = useState<Document[]>([]);
   const [current, setCurrent] = useState<Document | null>(null);
   const [source, setSource] = useState('');
@@ -255,29 +262,30 @@ function App() {
   const [reportDiff, setReportDiff] = useState('');
   const [reportStatus, setReportStatus] = useState('');
   const [jobBranches, setJobBranches] = useState<string[]>([]);
-  const [filters, setFilters] = useState<{
-    status?: string;
-    assignee?: string;
-    priority?: number;
-    label?: string;
-    project?: string;
-    problem?: string;
-  }>({});
+  const [filters, setFilters] = useState<BoardFilters>(initialRoute?.filters ?? {});
   // Generic filters over arbitrary frontmatter fields (one value per field).
-  const [fieldFilters, setFieldFilters] = useState<Record<string, string>>({});
-  const [tableSort, setTableSort] = useState<{ key: string; dir: 1 | -1 }>({ key: 'title', dir: 1 });
+  const [fieldFilters, setFieldFilters] = useState<Record<string, string>>(initialRoute?.fieldFilters ?? {});
+  const [tableSort, setTableSort] = useState<SortState>(initialRoute?.sort ?? { ...DEFAULT_SORT });
   const [diagnostics, setDiagnostics] = useState<Diagnostic[]>([]);
-  const [view, setView] = useState<View>('document');
-  const [pane, setPane] = useState<Pane>('rendered');
+  const [view, setView] = useState<View>(initialRoute?.view ?? 'document');
+  const [pane, setPane] = useState<Pane>(initialRoute?.pane ?? 'rendered');
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   // Board presentation state: reorderable column order, optional swimlane field,
   // and transient drag/drop hover targets.
-  const [columnOrder, setColumnOrder] = useState<string[]>([]);
-  const [swimlaneField, setSwimlaneField] = useState('');
+  const [columnOrder, setColumnOrder] = useState<string[]>(initialRoute?.columns ?? []);
+  const [swimlaneField, setSwimlaneField] = useState(initialRoute?.swimlane ?? '');
   const [dragCol, setDragCol] = useState<string | null>(null);
   const [overCol, setOverCol] = useState<string | null>(null);
   const autosaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSavedSource = useRef('');
+  // URL routing: whether a fetch is in flight (suppress a stale path write), the
+  // latest loader for popstate, the route currently being applied from the URL,
+  // the last structural route, and the hash we last wrote (avoid echo loops).
+  const [loading, setLoading] = useState(false);
+  const loadRef = useRef<(id: string) => Promise<void>>(async () => {});
+  const applyingRef = useRef<string | null>(null);
+  const prevRouteRef = useRef<string | null>(null);
+  const lastWrittenRef = useRef('');
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -318,18 +326,44 @@ function App() {
   };
 
   const load = async (id: string): Promise<void> => {
-    const d = await window.tributary.getDocument(id);
-    if (d) {
-      if (id !== current?.id) setSavedMsg('');
-      setCurrent(d);
-      setSource(d.source ?? '');
-      lastSavedSource.current = d.source ?? '';
-      setHistory(await window.tributary.history(id).catch(() => []));
-      setBacklinks(await window.tributary.backlinks(id).catch(() => []));
-      setDiff(await window.tributary.diff(id).catch(() => ''));
-      const cells = collectCells(d);
-      cellsRef.current = cells;
-      await evaluateCells(cells);
+    setLoading(true);
+    try {
+      const d = await window.tributary.getDocument(id);
+      if (d) {
+        if (id !== current?.id) setSavedMsg('');
+        setCurrent(d);
+        setSource(d.source ?? '');
+        lastSavedSource.current = d.source ?? '';
+        setHistory(await window.tributary.history(id).catch(() => []));
+        setBacklinks(await window.tributary.backlinks(id).catch(() => []));
+        setDiff(await window.tributary.diff(id).catch(() => ''));
+        const cells = collectCells(d);
+        cellsRef.current = cells;
+        await evaluateCells(cells);
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+  loadRef.current = load;
+
+  /** Open a document *and* switch to the document view (navigation links). */
+  const openDoc = (id: string): void => {
+    setView('document');
+    void load(id);
+  };
+
+  /** Write a route to the hash without reloading; replace for in-place tweaks. */
+  const writeRoute = (route: string, mode: 'push' | 'replace'): void => {
+    if (route === window.location.hash) return;
+    lastWrittenRef.current = route;
+    try {
+      if (mode === 'push') window.history.pushState(null, '', route);
+      else window.history.replaceState(null, '', route);
+    } catch {
+      // file:// has an opaque origin; fall back to fragment navigation.
+      if (mode === 'push') window.location.hash = route;
+      else window.location.replace(route);
     }
   };
 
@@ -343,12 +377,83 @@ function App() {
     (async () => {
       const list = await window.tributary.listDocuments();
       setDocs(list);
-      const home = list.find((d) => d.id === 'index') ?? list[0];
+      // A deep-linked document path wins over the home document; a viewing
+      // route (board/list/table) still needs a document open underneath it.
+      const routed =
+        initialRoute?.view === 'document' && initialRoute.docPath
+          ? findDocumentByPath(list, initialRoute.docPath)
+          : undefined;
+      const home = routed ?? list.find((d) => d.id === 'index') ?? list[0];
       if (home) await load(home.id);
       await loadWorkItems();
       setJobBranches(await window.tributary.listJobBranches().catch(() => []));
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ── URL routing ────────────────────────────────────────────────────────
+  // Reflect state into the hash: push a history entry when the document or view
+  // changes, replace it for filter/pane/sort tweaks so Back steps through
+  // navigation rather than every keystroke.
+  useEffect(() => {
+    if (view === 'document' && (!current || loading)) return;
+    const route = serializeRoute({
+      view,
+      docPath: current?.path ?? null,
+      pane,
+      filters,
+      fieldFilters,
+      swimlane: swimlaneField,
+      sort: tableSort,
+      columns: columnOrder,
+    });
+    const signature = view + '\u0000' + (current?.path ?? '');
+    if (applyingRef.current !== null) {
+      // This is a route we are applying from the URL; don't echo it back.
+      if (route === applyingRef.current || route === window.location.hash) {
+        applyingRef.current = null;
+        prevRouteRef.current = signature;
+      }
+      return;
+    }
+    if (route === window.location.hash) {
+      prevRouteRef.current = signature;
+      return;
+    }
+    const structural = prevRouteRef.current !== null && prevRouteRef.current !== signature;
+    prevRouteRef.current = signature;
+    writeRoute(route, structural ? 'push' : 'replace');
+  }, [view, current?.path, pane, filters, fieldFilters, swimlaneField, tableSort, columnOrder, loading]);
+
+  // Apply Back/Forward (or a hand-edited hash) to state without re-writing it.
+  useEffect(() => {
+    const applyHash = (): void => {
+      const hash = window.location.hash;
+      // popstate + hashchange can both fire for one traversal; apply once.
+      if (hash === lastWrittenRef.current) return;
+      lastWrittenRef.current = hash;
+      const route = parseRoute(hash);
+      if (!route) return;
+      applyingRef.current = serializeRoute(route);
+      setView(route.view);
+      setPane(route.pane);
+      setFilters(route.filters);
+      setFieldFilters(route.fieldFilters);
+      setSwimlaneField(route.swimlane);
+      setTableSort(route.sort);
+      setColumnOrder(route.columns);
+      if (route.view === 'document' && route.docPath) {
+        const doc = findDocumentByPath(dataRef.current.docs, route.docPath);
+        if (doc) void loadRef.current(doc.id);
+        else applyingRef.current = null; // unknown path: fall back to the open doc
+      }
+    };
+    window.addEventListener('popstate', applyHash);
+    window.addEventListener('hashchange', applyHash);
+    return () => {
+      window.removeEventListener('popstate', applyHash);
+      window.removeEventListener('hashchange', applyHash);
+    };
   }, []);
 
   const onSave = async (): Promise<void> => {
@@ -411,7 +516,7 @@ function App() {
     const target = el.getAttribute('href');
     if (target) {
       void window.tributary.resolveLink(target).then((d) => {
-        if (d) void load(d.id);
+        if (d) openDoc(d.id);
       });
     }
   };
@@ -660,7 +765,7 @@ function App() {
               w={w}
               statuses={statuses}
               resolveTitle={refTitle}
-              onOpen={(id) => void load(id)}
+              onOpen={(id) => openDoc(id)}
               onStatusChange={(id, s) => void changeStatus(id, s)}
             />
           ))
@@ -725,10 +830,10 @@ function App() {
           {diagnostics.map((d, i) => (
             <li key={d.documentId + d.key + String(i)} data-severity={d.severity}>
               <a
-                href={'#' + d.documentId}
+                href={documentHref(d.path)}
                 onClick={(e) => {
                   e.preventDefault();
-                  void load(d.documentId);
+                  openDoc(d.documentId);
                 }}
               >
                 {d.path}
@@ -919,10 +1024,10 @@ function App() {
                 {results.map((d) => (
                   <a
                     key={d.id}
-                    href={'#' + d.id}
+                    href={documentHref(d.path)}
                     onClick={(e) => {
                       e.preventDefault();
-                      void load(d.id);
+                      openDoc(d.id);
                     }}
                   >
                     <div>{titleOf(d)}</div>
@@ -943,12 +1048,12 @@ function App() {
                   return (
                     <a
                       key={d.id}
-                      href={'#' + d.id}
+                      href={documentHref(d.path)}
                       data-root={g.folder === '' || undefined}
                       aria-current={current?.id === d.id || undefined}
                       onClick={(e) => {
                         e.preventDefault();
-                        void load(d.id);
+                        openDoc(d.id);
                       }}
                     >
                       <span>{titleOf(d)}</span>
@@ -1060,7 +1165,7 @@ function App() {
                       w={w}
                       statuses={statuses}
                       resolveTitle={refTitle}
-                      onOpen={(id) => void load(id)}
+                      onOpen={(id) => openDoc(id)}
                       onStatusChange={(id, s) => void changeStatus(id, s)}
                     />
                   ))
@@ -1106,7 +1211,7 @@ function App() {
                       </tr>
                     ) : (
                       sortedItems.map((w) => (
-                        <tr key={w.id} onClick={() => void load(w.id)}>
+                        <tr key={w.id} onClick={() => openDoc(w.id)}>
                           {tableColumns.map((c) => (
                             <td key={c.key}>{c.value(w)}</td>
                           ))}
@@ -1197,10 +1302,10 @@ function App() {
                 backlinks.map((b) => (
                   <a
                     key={b.id}
-                    href={'#' + b.id}
+                    href={documentHref(b.path)}
                     onClick={(e) => {
                       e.preventDefault();
-                      void load(b.id);
+                      openDoc(b.id);
                     }}
                   >
                     {titleOf(b)} <small>· {b.path}</small>
