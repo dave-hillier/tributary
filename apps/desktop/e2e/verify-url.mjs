@@ -68,6 +68,22 @@ try {
   const pendingCells = await page.locator('figure[data-cell][data-status="pending"]').count();
   check('transcluded cells evaluate', cellCount === 5 && pendingCells === 0, 'cells=' + cellCount + ' pending=' + pendingCells);
 
+  // Notebook host lifecycle: leaving a document disposes its hosts, so coming
+  // back must rebuild and re-evaluate them. A lost or double-disposed host shows
+  // up here as cells stuck pending.
+  await page.locator('[data-tree] a').filter({ hasText: 'Hello' }).first().click();
+  await page.waitForFunction(() => location.hash.startsWith('#/doc/notes/hello'), { timeout: 5000 });
+  await page.goto(base + '#/doc/index.md');
+  await page.waitForSelector('[data-doc]', { timeout: 15000 });
+  await page.waitForSelector('figure[data-cell]', { timeout: 8000 });
+  const afterReturn = await page.locator('figure[data-cell]').count();
+  const afterReturnPending = await page.locator('figure[data-cell][data-status="pending"]').count();
+  check(
+    'cells re-evaluate after leaving and returning',
+    afterReturn === 5 && afterReturnPending === 0,
+    'cells=' + afterReturn + ' pending=' + afterReturnPending,
+  );
+
   // Stage 2 blocks render: a callout and a resolved query block.
   const callouts = await page.locator('[data-callout]').count();
   const queryHits = await page.locator('[data-query] a').count();

@@ -412,6 +412,21 @@ invalidate(cellId?: string): void;
 dispose(): void;  
 }
 
+**Implemented shape (2026-09, ADR-002 amendment).** The sketch above remains the
+intent; the shipped interface differs in three deliberate ways, recorded here
+rather than left to drift:
+
+- **Compilation is not a host method.** The host receives already-compiled cells
+  (`define(cell)`), so esbuild can stay in the main process — the renderer bundle
+  cannot include the native binary. Compilation therefore sits *outside* the
+  boundary, and a host is an evaluation seam.
+- **`cellId` is a caller-supplied key.** The shell mints it (document id plus the
+  cell's index), because cells are anonymous in the Markdown dialect. It is the
+  `cellId` of this sketch, and it survives an IPC or worker boundary.
+- **No `subscribe`.** Consumers pull the current `Map<key, value>` from
+  `evaluate()` rather than being pushed to. A push surface would be an additive
+  method; the key type is already the right shape for it.
+
 ## 6.1 Ownership boundary
 
 | **Concern**                                | **Owner**                        |

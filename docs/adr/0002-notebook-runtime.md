@@ -1,8 +1,37 @@
 # ADR-002 — Notebook runtime
 
-- **Status:** Accepted
+- **Status:** Accepted — the `NotebookHost` boundary stands; the runtime behind it was amended in 2026-09 (see below)
 - **Date:** 2026-09-12
 - **Source:** architecture §6 (Notebook and rendered-block execution), §10 Slice 0
+
+## Amendment (2026-09-14): which runtime sits behind the boundary
+
+The decision below chose the *initial* Stage 3 runtime and required the seam to
+stay swappable. ADR-004 then changed the cell model to esbuild-compiled
+`js`/`ts`/`jsx`/`tsx`, and explicitly preserved this boundary ("behind the
+**unchanged** `WorkspaceCapabilities`/`NotebookHost` boundary"). The engine that
+grew to satisfy the new model — `ReactiveHost` in `reactive.ts` — is therefore a
+**third** implementation, not one of the two candidates evaluated here.
+
+As of 2026-09-14 that engine implements `NotebookHost` itself, so the boundary now
+genuinely guards the code that runs:
+
+- The renderer holds its hosts as `NotebookHost<CompiledCellDef>` and no longer
+  names the concrete class, so replacing the execution engine is a change at one
+  construction site (this is what makes the Stage 7 worker/process boundary a
+  drop-in rather than a restructuring).
+- `test/notebook.test.ts` drives every implementation through one
+  generically-typed function, so the swap is enforced by the compiler rather than
+  by convention.
+- The custom and Observable evaluators remain as the two evaluated candidates and
+  as the seam's other live implementations — the comparison this ADR called for
+  is still exercised.
+
+One impedance mismatch is worth recording, because it bounds what "swappable"
+means: the expression hosts name a cell by its definition and bind the value
+under that name, whereas the compiled host publishes the names a cell *declares*.
+The interface is shared; the cell model is not. See the comment on the compiled
+branch of the swap test.
 
 ## Context
 

@@ -8,6 +8,7 @@ import {
   compileReactiveCellAsync,
   evaluateCell,
   ReactiveHost,
+  withName,
   type ResolveOptions,
 } from '../src/index.js';
 
@@ -61,9 +62,9 @@ describe('cell module resolution (finding 11)', () => {
       'ts',
       resolve
     );
-    const host = new ReactiveHost([compiled]);
-    const outs = await host.evaluate({ React: { createElement } });
-    expect(outs[0]).toBe(42);
+    const host = new ReactiveHost([withName('c0', compiled)], { context: { React: { createElement } } });
+    const outs = await host.evaluate();
+    expect(outs.get('c0')).toBe(42);
   });
 
   it('resolves imports inside compileDocument while sharing declarations', async () => {
@@ -106,12 +107,13 @@ describe('per-cell error isolation (finding 12)', () => {
         { lang: 'js', source: 'const good = 1' },
         { lang: 'js', source: 'import { missing } from "this-package-does-not-exist"\nmissing' },
         { lang: 'js', source: 'good + 1' },
-      ].map((c) => compileReactiveCell(c.source, c.lang, resolve))
+      ].map((c, i) => withName('c' + i, compileReactiveCell(c.source, c.lang, resolve))),
+      { context: { React: { createElement } } }
     );
-    const outs = await host.evaluate({ React: { createElement } });
-    expect(outs[0]).toBeUndefined();
-    expect(outs[1]).toBeInstanceOf(Error);
-    expect(outs[2]).toBe(2);
+    const outs = await host.evaluate();
+    expect(outs.get('c0')).toBeUndefined();
+    expect(outs.get('c1')).toBeInstanceOf(Error);
+    expect(outs.get('c2')).toBe(2);
   });
 
   it('compileDocument isolates a bad cell into its own slot', async () => {

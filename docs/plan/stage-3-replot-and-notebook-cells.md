@@ -8,9 +8,9 @@ for rich rendered output.
 edit reactively with per-dependant invalidation, and persist back into the
 `.md`; suite green at `e101911` (09-13). The ADR-004 capability boundary is
 enforced (`57fe30b`): cells run behind a scope lock that denies ambient runtime
-powers and freezes the granted `api`/`components` surface. Cells execute in the
-app main process (compiled/evaluated there, results serialised to the
-renderer); full separate-process isolation remains a
+powers and freezes the granted `api`/`components` surface. Cells compile in the
+app main process (esbuild) and evaluate in the renderer, where React lives; full
+separate-process isolation remains a
 [Stage 7](./stage-7-agent-review-and-hardening.md) hardening item.
 
 ## Goal
@@ -117,15 +117,21 @@ Markdown
 
 - [x] A cell defines data and a downstream `tsx` cell renders it reactively.
 - [x] Editing an upstream cell recomputes only dependants (stale async disposed).
-- [~] Plain wiki docs incur **no notebook runtime cost** — no cells means no
-      compilation, but the host is still constructed and an IPC evaluate still
-      runs for every document (finding 14).
+- [x] Plain wiki docs incur **no notebook runtime cost** — `loadCells` groups
+      reachable documents, drops every group with no own cells, and only then
+      compiles and builds hosts, so a cell-less document constructs no host and
+      makes no IPC call.
 - [x] A `tsx` cell renders a React component from the final expression with no
       `display()` call.
 - [x] A cell can `import` a component library (e.g. Replot) — imports resolve
       and cells evaluate in the renderer with full React, so an imported
       component renders end-to-end (finding 11).
-- [x] Execution stays behind `NotebookHost` + the capability boundary.
+- [x] Execution stays behind `NotebookHost` + the capability boundary. The
+      renderer holds its hosts as `NotebookHost<CompiledCellDef>` and never names
+      the concrete engine, and `test/notebook.test.ts` drives every
+      implementation — the expression hosts and the esbuild/TSX host the app
+      runs — through one generically-typed function, so an implementation that
+      stopped satisfying the seam would fail to compile.
 
 **Computational documents, still `.md` — TSX lives inside cells, never at the
 document level.**

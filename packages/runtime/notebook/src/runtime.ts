@@ -6,7 +6,14 @@
 export {
   ReactiveHost,
   makeReactiveRunner,
+  withName,
   type CompiledReactiveCell,
   type ReactiveCell,
   type ReactiveContext,
 } from './reactive.js';
+
+export type {
+  CompiledCellDef,
+  NotebookHost,
+  NotebookHostOptions,
+} from './types.js';

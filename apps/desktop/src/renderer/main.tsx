@@ -9,8 +9,12 @@ import type {
   QueryResolver,
   EditResolver,
 } from '@tributary/components';
-import { ReactiveHost } from '@tributary/notebook/runtime';
-import type { CompiledReactiveCell } from '@tributary/notebook/runtime';
+import { ReactiveHost, withName } from '@tributary/notebook/runtime';
+import type {
+  CompiledCellDef,
+  CompiledReactiveCell,
+  NotebookHost,
+} from '@tributary/notebook/runtime';
 import type { RunJobOutcome } from '@tributary/jobs';
 import { findSection, nodeSource, replaceNodeSource } from '@tributary/markdown';
 import CodeMirror from '@uiw/react-codemirror';
@@ -26,7 +30,13 @@ import {
 } from './url-state';
 import type { BoardFilters, Pane, RouteState, SortState, View } from './url-state';
 import { createAutosave, type Autosave } from './autosave';
-import { collectOwnCells, reachableDocuments, type CollectedCell } from './collect-cells';
+import {
+  cellName,
+  cellsRenumbered,
+  collectOwnCells,
+  reachableDocuments,
+  type CollectedCell,
+} from './collect-cells';
 import { kindLabel } from './document-label';
 import './styles.css';
 
@@ -34,6 +44,19 @@ interface HistoryEntry {
   hash: string;
   message: string;
   date: string;
+}
+
+/** One evaluated document: its host, its cells, and each cell's host name. */
+interface HostEntry {
+  host: NotebookHost<CompiledCellDef>;
+  cells: Cell[];
+  names: string[];
+}
+
+/** A document's cells compiled and evaluated, before they are installed. */
+interface EvaluatedGroup extends HostEntry {
+  owner: Document;
+  outs: Map<string, unknown>;
 }
 
 interface SaveResult {
@@ -265,7 +288,10 @@ function App() {
   const [syncStatus, setSyncStatus] = useState('');
   const [cellResults, setCellResults] = useState<Map<Cell, CellRenderResult>>(new Map());
   const cellsRef = useRef<Cell[]>([]);
-  const hostsRef = useRef<Map<string, { host: ReactiveHost; cells: Cell[] }>>(new Map());
+  const hostsRef = useRef<Map<string, HostEntry>>(new Map());
+  // Serialises overlapping loads: a slow earlier load must not install its
+  // hosts over a newer one's.
+  const loadSeqRef = useRef(0);
   const dataRef = useRef<{ workItems: WorkItem[]; docs: Document[] }>({ workItems: [], docs: [] });
   const [backlinks, setBacklinks] = useState<Document[]>([]);
   const [diff, setDiff] = useState('');
@@ -373,37 +399,81 @@ function App() {
    * Compile and evaluate each reachable document in its OWN reactive scope, so
    * a name collision between the host and a transcluded document cannot cross
    * wires. Results are aggregated for rendering; each host is kept for updates.
+   *
+   * Hosts are held behind the `NotebookHost` seam, not the concrete class, so
+   * swapping the execution engine (a worker host, say) is a change at this one
+   * construction site.
    */
   const loadCells = async (doc: Document, lookup: (target: string) => Document | undefined): Promise<void> => {
+    const seq = ++loadSeqRef.current;
     const groups = reachableDocuments(doc, lookup)
       .map((owner) => ({ owner, cells: collectOwnCells(owner) }))
       .filter((g) => g.cells.length > 0);
 
-    const evaluated = await Promise.all(
-      groups.map(async (g) => {
-        const compiled = await window.tributary.compileDocument(
-          g.cells.map((c) => ({ lang: c.lang, source: c.value as string }))
-        );
-        const host = new ReactiveHost(compiled);
-        const outs = await host.evaluate(rendererContext());
-        return { ...g, host, outs };
-      })
-    );
+    let evaluated: EvaluatedGroup[];
+    try {
+      evaluated = await Promise.all(
+        groups.map(async (g) => {
+          const compiled = await window.tributary.compileDocument(
+            g.cells.map((c) => ({ lang: c.lang, source: c.value as string }))
+          );
+          const names = g.cells.map((_, i) => cellName(g.owner.id, i));
+          const host: NotebookHost<CompiledCellDef> = new ReactiveHost(
+            compiled.map((c, i) => withName(names[i]!, c)),
+            { context: rendererContext() }
+          );
+          const outs = await host.evaluate();
+          return { ...g, host, outs, names };
+        })
+      );
+    } catch (e) {
+      // Compilation failed. Render the incoming document's cells as errors
+      // rather than returning early and leaving the previous document's
+      // results on screen under the new document's title.
+      if (seq !== loadSeqRef.current) return;
+      const failure = e instanceof Error ? e : new Error(String(e));
+      const owners = new Map<Cell, CollectedCell>();
+      const results = new Map<Cell, CellRenderResult>();
+      for (const g of groups) {
+        g.cells.forEach((c, i) => {
+          owners.set(c, { cell: c, docId: g.owner.id, index: i, name: cellName(g.owner.id, i) });
+          results.set(c, outputToNode(failure));
+        });
+      }
+      for (const entry of hostsRef.current.values()) entry.host.dispose();
+      hostsRef.current = new Map();
+      cellOwnerRef.current = owners;
+      cellsRef.current = collectOwnCells(doc);
+      setCellResults(results);
+      setSavedMsg('Cell compilation failed: ' + failure.message);
+      return;
+    }
 
-    const hosts = new Map<string, { host: ReactiveHost; cells: Cell[] }>();
+    // A superseded load must not install its hosts: the newer load has already
+    // replaced them, so installing here would leave cells pending forever.
+    if (seq !== loadSeqRef.current) {
+      for (const g of evaluated) g.host.dispose();
+      return;
+    }
+
+    const previous = hostsRef.current;
+    const hosts = new Map<string, HostEntry>();
     const owners = new Map<Cell, CollectedCell>();
     const results = new Map<Cell, CellRenderResult>();
     for (const g of evaluated) {
-      hosts.set(g.owner.id, { host: g.host, cells: g.cells });
+      hosts.set(g.owner.id, { host: g.host, cells: g.cells, names: g.names });
       g.cells.forEach((c, i) => {
-        owners.set(c, { cell: c, docId: g.owner.id, index: i });
-        results.set(c, outputToNode(g.outs[i]));
+        owners.set(c, { cell: c, docId: g.owner.id, index: i, name: g.names[i]! });
+        results.set(c, outputToNode(g.outs.get(g.names[i]!)));
       });
     }
     hostsRef.current = hosts;
     cellOwnerRef.current = owners;
     cellsRef.current = collectOwnCells(doc);
     setCellResults(results);
+    // Navigation drops the old hosts; dispose them so a cell-captured timer
+    // cannot keep running against a scope nobody will read again.
+    for (const entry of previous.values()) entry.host.dispose();
   };
 
   /** Rebuilt only when the document set changes, not on every keystroke. */
@@ -432,6 +502,10 @@ function App() {
         const resolver = makeTransclusionResolver(dataRef.current.docs);
         await loadCells(d, (target) => resolver.resolve(target));
       }
+    } catch (e) {
+      // Surface the failure instead of letting it escape as an unhandled
+      // rejection with no visible cause.
+      setSavedMsg('Could not open document: ' + String(e));
     } finally {
       setLoading(false);
     }
@@ -720,10 +794,20 @@ function App() {
         setSource(result.document.source ?? '');
         cellsRef.current = collectOwnCells(result.document);
       }
-      const outs = await entry.host.update(owner.index, result.compiled, rendererContext());
+      // A reparse that changed the fence layout renumbers the cells, so the
+      // names this entry holds no longer describe the document. Reload rather
+      // than send a stale index to the next edit.
+      if (cellsRenumbered(entry.cells, collectOwnCells(result.document))) {
+        await load(owner.docId);
+        return;
+      }
+      entry.host.define(withName(owner.name, result.compiled));
+      const outs = await entry.host.evaluate();
+      // A reload may have replaced the host while this edit was in flight.
+      if (hostsRef.current.get(owner.docId) !== entry) return;
       setCellResults((prev) => {
         const next = new Map(prev);
-        entry.cells.forEach((c, i) => next.set(c, outputToNode(outs[i])));
+        entry.cells.forEach((c, i) => next.set(c, outputToNode(outs.get(entry.names[i]!))));
         return next;
       });
     } catch (e) {

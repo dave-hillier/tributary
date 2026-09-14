@@ -10,6 +10,29 @@ export interface CollectedCell {
   docId: string;
   /** 0-based index of the cell within its owning document (document order). */
   index: number;
+  /** Host name for the cell — unique within its host, constant for its lifetime. */
+  name: string;
+}
+
+/**
+ * Name a cell for its host. Cells are anonymous in the dialect, so the name is
+ * derived: document id plus the cell's index within that document. It needs to
+ * be unique within one host and stable for that host's lifetime only — any
+ * reparse rebuilds the hosts and mints fresh names.
+ */
+export function cellName(docId: string, index: number): string {
+  return docId + '#' + index;
+}
+
+/**
+ * True when a reparse changed the fence layout, so cell names derived from the
+ * previous layout no longer address the same cells. A changed count is the
+ * detectable case — and the only evidence available, since cells carry no
+ * stable identity in the dialect. When this is true the caller must rebuild its
+ * index rather than edit through a name minted against the old layout.
+ */
+export function cellsRenumbered(before: readonly Cell[], after: readonly Cell[]): boolean {
+  return before.length !== after.length;
 }
 
 /** Mirrors the render-time guard in @tributary/components. */
