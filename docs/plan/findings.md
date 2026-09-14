@@ -3,9 +3,11 @@
 - **Scope:** originally Stages 0–1 (up to `5215935`); now tracked through the
   Stage 2/3 work and hardening committed up to `26e0f9c` (09-13).
 - **Status:** Stages 0/1/2/3/4 committed and green. Implemented: findings
-  1, 2, 3, 5, 6, 7, 8, 10, 11, 12, 14 and the HTML-sanitisation work. Remaining
-  open: the native Electron *window* launch (finding 4 — ABI now verified under
-  Electron's bundled Node 20; the window probe needs a desktop session,
+  1, 2, 3, 5, 6, 7, 8, 10, 11, 12, 14 and the HTML-sanitisation work. A
+  2026-09-14 hardening pass then closed 19 defects found in a fresh review pass
+  (see "Hardening pass — 2026-09-14" below); the suite now stands at 228 tests.
+  Remaining open: the native Electron *window* launch (finding 4 — ABI now
+  verified under Electron bundling; the window probe needs a desktop session,
   `pnpm --filter app-desktop smoke:window`).
 
 This is an honest assessment of the work so far. The skeleton and the
@@ -339,6 +341,68 @@ diagnostics).
 **Remaining:** the `work/issues` directory convention is unused (paths are
 non-semantic, so this is cosmetic), and `template` is declared but no template
 selection consumes it yet.
+
+## Hardening pass — 2026-09-14
+
+A fresh whole-application review at `884da0b` (scratch list, since deleted)
+found 19 defects that the then-current 60-test suite did not catch. All are
+fixed, each with a regression test; the pass took the suite to 228 tests and
+`pnpm --filter app-desktop verify:url` back to green.
+
+**Correctness (7)**
+
+- **C1 — Autosave dropped the last keystroke.** The debounced save read stale
+  render state, committed one edit behind, and never persisted the final edit.
+  Fixed with a debounce that captures the triggering value, a saver that reads
+  the live document from a ref, and a cancel on navigation.
+- **C2 — HTML sanitizer bypass.** The attribute scan required whitespace between
+  attributes, so slash-separated event handlers (`<img/src=x onerror=…>`)
+  skipped it. Replaced with a fail-closed tag parser that mirrors the HTML5
+  tokenizer.
+- **C3 — Capability boundary absent on the live path.** `withScopeLock` was
+  applied only by `compileDocument`/`compileCell`; `makeReactiveRunner` (the
+  renderer path) skipped it. The preamble now lives in the esbuild-free runtime
+  entry and wraps the runner.
+- **C4 — updateFrontmatter matched nested keys.** The key regex matched at any
+  indentation and spliced lists onto the key line. Anchored to column 0;
+  non-scalars now emit an indented block.
+- **C5 — Transcluded cells never evaluated.** `collectCells` walked only the host
+  AST. It now expands `![[…]]` in render order and tags each cell with its
+  owning document and local index, so edits route to the right file.
+- **C6 — Weekly report could not run twice at one revision.** Branch names were
+  revision-derived only. They now include the period and a uniqueness suffix,
+  and the worktree/index are cleaned up on every path.
+- **C7 — Sidebar and frontmatter panel read the deprecated kind.** Both now use
+  `documentType()` from `@tributary/ontology`.
+
+**Should fix (8)**
+
+- **S1** — `updateCell` routes through `saveDocument` (index rebuild) and returns
+  the reparsed document, so a later checkpoint cannot undo the edit.
+- **S2** — `Workspace.save` returns the merged document plus a `merged` flag; the
+  renderer adopts it after a three-way merge.
+- **S3** — `open`/`openDemo`/`runJob` close the previous `SqliteIndex` on every
+  path.
+- **S4** — The autosave timer is cancelled on navigation.
+- **S5** — `compileReactiveCell` collects destructured bindings (object, array,
+  default, rest) into `provided`.
+- **S6** — Cells in a dependency cycle surface `Circular dependency involving
+  cell N` instead of staying undefined, matching the custom evaluator.
+- **S7** — `preview.mjs` and `verify-url.mjs` share one preload method list.
+- **S8** — `renameDocument` rejects targets that escape the workspace root.
+
+**Performance and tidy-up (4)**
+
+- **P1** — `makeTransclusionResolver` is memoized per document set.
+- **P2** — `ReactiveHost` caches per-cell dependencies; the O(n³) sort scan is
+  gone.
+- **P3** — Import resolution runs on the esbuild async API on the IPC path.
+- **P4** — The backlinks label uses a stylesheet rule, not an inline style.
+
+**Open follow-ups.** Transcluded cells share one reactive scope with the host,
+so a name collision is resolved by render order; and the merge-adoption path is
+best-effort when the user types during a merge. Neither is tracked as a numbered
+finding yet.
 
 ## Decisions
 
