@@ -1,56 +1,45 @@
 import { describe, it, expect } from 'vitest';
-import { collectCells } from '../src/renderer/collect-cells.js';
+import { collectOwnCells, reachableDocuments } from '../src/renderer/collect-cells.js';
 import type { Document } from '@tributary/api';
 
 function doc(id: string, children: unknown[]): Document {
   return { id, path: id + '.md', frontmatter: {}, root: { type: 'root', children } } as unknown as Document;
 }
 const cell = (value: string) => ({ type: 'cell', lang: 'js', value, children: [] });
-const trans = (target: string, heading?: string) => ({
-  type: 'transclusion',
-  target,
-  ...(heading ? { heading } : {}),
-  children: [],
+const trans = (target: string) => ({ type: 'transclusion', target, children: [] });
+
+describe('collectOwnCells', () => {
+  it('returns only the document own cells, in order', () => {
+    const d = doc('d', [cell('a'), trans('inner'), cell('b')]);
+    expect(collectOwnCells(d).map((c) => c.value)).toEqual(['a', 'b']);
+  });
 });
 
-describe('collectCells', () => {
-  it("collects a transcluded document's cells in render order with owners (finding 5)", () => {
-    const inner = doc('inner', [cell('a'), cell('b')]);
-    const host = doc('host', [cell('h'), trans('inner'), cell('h2')]);
-    const got = collectCells(host, (t) => (t === 'inner' ? inner : undefined));
-    expect(got.map((g) => g.cell.value)).toEqual(['h', 'a', 'b', 'h2']);
-    expect(got.map((g) => g.docId)).toEqual(['host', 'inner', 'inner', 'host']);
-    expect(got.map((g) => g.index)).toEqual([0, 0, 1, 1]);
-  });
-
-  it('collects from a nested transclusion chain', () => {
-    const c = doc('c', [cell('cc')]);
-    const b = doc('b', [cell('bb'), trans('c')]);
-    const a = doc('a', [trans('b')]);
-    const byId: Record<string, Document> = { a, b, c };
-    const got = collectCells(a, (t) => byId[t]);
-    expect(got.map((g) => g.cell.value)).toEqual(['bb', 'cc']);
-    expect(got.map((g) => g.docId)).toEqual(['b', 'c']);
-  });
-
-  it('collects a cell once when the same document is embedded twice', () => {
+describe('reachableDocuments', () => {
+  it('returns the host and each transcluded document once', () => {
     const inner = doc('inner', [cell('x')]);
     const host = doc('host', [trans('inner'), trans('inner')]);
-    const got = collectCells(host, () => inner);
-    expect(got).toHaveLength(1);
+    const got = reachableDocuments(host, (t) => (t === 'inner' ? inner : undefined));
+    expect(got.map((d) => d.id)).toEqual(['host', 'inner']);
+  });
+
+  it('follows a nested chain in order', () => {
+    const c = doc('c', []);
+    const b = doc('b', [trans('c')]);
+    const a = doc('a', [trans('b')]);
+    const byId: Record<string, Document> = { a, b, c };
+    expect(reachableDocuments(a, (t) => byId[t]).map((d) => d.id)).toEqual(['a', 'b', 'c']);
   });
 
   it('stops at a cycle', () => {
-    const a = doc('a', [cell('a1'), trans('b')]);
-    const b = doc('b', [cell('b1'), trans('a')]);
+    const a = doc('a', [trans('b')]);
+    const b = doc('b', [trans('a')]);
     const byId: Record<string, Document> = { a, b };
-    const got = collectCells(a, (t) => byId[t]);
-    expect(got.map((g) => g.cell.value)).toEqual(['a1', 'b1']);
+    expect(reachableDocuments(a, (t) => byId[t]).map((d) => d.id)).toEqual(['a', 'b']);
   });
 
-  it('leaves cells in place when no lookup is wired', () => {
-    const host = doc('host', [trans('inner'), cell('h')]);
-    const got = collectCells(host);
-    expect(got.map((g) => g.cell.value)).toEqual(['h']);
+  it('returns only the host when a target does not resolve', () => {
+    const host = doc('host', [trans('missing')]);
+    expect(reachableDocuments(host, () => undefined).map((d) => d.id)).toEqual(['host']);
   });
 });

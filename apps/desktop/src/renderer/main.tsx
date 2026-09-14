@@ -20,7 +20,7 @@ import {
 } from './url-state';
 import type { BoardFilters, Pane, RouteState, SortState, View } from './url-state';
 import { createAutosave, type Autosave } from './autosave';
-import { collectCells, type CollectedCell } from './collect-cells';
+import { collectOwnCells, reachableDocuments, type CollectedCell } from './collect-cells';
 import { kindLabel } from './document-label';
 import './styles.css';
 
@@ -251,7 +251,7 @@ function App() {
   const [syncStatus, setSyncStatus] = useState('');
   const [cellResults, setCellResults] = useState<Map<Cell, CellRenderResult>>(new Map());
   const cellsRef = useRef<Cell[]>([]);
-  const hostRef = useRef<ReactiveHost | null>(null);
+  const hostsRef = useRef<Map<string, { host: ReactiveHost; cells: Cell[] }>>(new Map());
   const dataRef = useRef<{ workItems: WorkItem[]; docs: Document[] }>({ workItems: [], docs: [] });
   const [backlinks, setBacklinks] = useState<Document[]>([]);
   const [diff, setDiff] = useState('');
@@ -299,6 +299,16 @@ function App() {
     dataRef.current.workItems = workItems;
   }, [workItems]);
 
+  /**
+   * Set the canonical document list in state and in the synchronous snapshot.
+   * Collection and rendering must share one list: every IPC call returns fresh
+   * copies, so mixing two calls breaks cell identity.
+   */
+  const applyDocs = (list: Document[]): void => {
+    dataRef.current.docs = list;
+    setDocs(list);
+  };
+
   const rendererApi = {
     workItems: () => dataRef.current.workItems,
     listDocuments: () => dataRef.current.docs,
@@ -306,22 +316,41 @@ function App() {
   };
   const rendererContext = () => ({ React, api: rendererApi, components: {} });
 
-  /** Compile cells in main, then evaluate them here where React renders. */
-  const evaluateCells = async (cells: Cell[]): Promise<void> => {
-    if (cells.length === 0) {
-      hostRef.current = null;
-      setCellResults(new Map());
-      return;
-    }
-    const compiled = await window.tributary.compileDocument(
-      cells.map((c) => ({ lang: c.lang, source: c.value as string }))
+  /**
+   * Compile and evaluate each reachable document in its OWN reactive scope, so
+   * a name collision between the host and a transcluded document cannot cross
+   * wires. Results are aggregated for rendering; each host is kept for updates.
+   */
+  const loadCells = async (doc: Document, lookup: (target: string) => Document | undefined): Promise<void> => {
+    const groups = reachableDocuments(doc, lookup)
+      .map((owner) => ({ owner, cells: collectOwnCells(owner) }))
+      .filter((g) => g.cells.length > 0);
+
+    const evaluated = await Promise.all(
+      groups.map(async (g) => {
+        const compiled = await window.tributary.compileDocument(
+          g.cells.map((c) => ({ lang: c.lang, source: c.value as string }))
+        );
+        const host = new ReactiveHost(compiled);
+        const outs = await host.evaluate(rendererContext());
+        return { ...g, host, outs };
+      })
     );
-    const host = new ReactiveHost(compiled);
-    hostRef.current = host;
-    const outs = await host.evaluate(rendererContext());
-    const map = new Map<Cell, CellRenderResult>();
-    cells.forEach((c, i) => map.set(c, outputToNode(outs[i])));
-    setCellResults(map);
+
+    const hosts = new Map<string, { host: ReactiveHost; cells: Cell[] }>();
+    const owners = new Map<Cell, CollectedCell>();
+    const results = new Map<Cell, CellRenderResult>();
+    for (const g of evaluated) {
+      hosts.set(g.owner.id, { host: g.host, cells: g.cells });
+      g.cells.forEach((c, i) => {
+        owners.set(c, { cell: c, docId: g.owner.id, index: i });
+        results.set(c, outputToNode(g.outs[i]));
+      });
+    }
+    hostsRef.current = hosts;
+    cellOwnerRef.current = owners;
+    cellsRef.current = collectOwnCells(doc);
+    setCellResults(results);
   };
 
   /** Rebuilt only when the document set changes, not on every keystroke. */
@@ -343,13 +372,10 @@ function App() {
         setHistory(await window.tributary.history(id).catch(() => []));
         setBacklinks(await window.tributary.backlinks(id).catch(() => []));
         setDiff(await window.tributary.diff(id).catch(() => ''));
-        // Cells in a transcluded document are part of the same visible
-        // document, so collect them too and remember who owns each one.
-        const collected = collectCells(d, (target, heading) => transclusionResolver.resolve(target, heading));
-        cellOwnerRef.current = new Map(collected.map((c) => [c.cell, c]));
-        const cells = collected.map((c) => c.cell);
-        cellsRef.current = cells;
-        await evaluateCells(cells);
+        // Use the canonical document list so the cells we compile are the same
+        // objects the render's transclusion resolver will hand to CellView.
+        const resolver = makeTransclusionResolver(dataRef.current.docs);
+        await loadCells(d, (target) => resolver.resolve(target));
       }
     } finally {
       setLoading(false);
@@ -386,7 +412,7 @@ function App() {
   useEffect(() => {
     (async () => {
       const list = await window.tributary.listDocuments();
-      setDocs(list);
+      applyDocs(list);
       // A deep-linked document path wins over the home document; a viewing
       // route (board/list/table) still needs a document open underneath it.
       const routed =
@@ -489,14 +515,20 @@ function App() {
       try {
         const result = await window.tributary.saveDocument({ ...doc, source: v }, 'autosave');
         if (result.merged && result.document) {
-          // A stale base was resolved by three-way merge; adopt the merged text
-          // so the next save cannot discard it.
+          // Never silently discard a three-way merge. The merged text becomes
+          // the baseline and the visible source, and a save still pending from
+          // the pre-merge text is dropped (its edits are included in the merge).
+          // Keystrokes typed during the merge are superseded by the merged text.
+          autosaveRef.current?.cancel();
+          const mergedSource = result.document.source ?? v;
           currentRef.current = result.document;
-          lastSavedSource.current = result.document.source ?? v;
-          if (sourceRef.current === v) setSource(result.document.source ?? v);
-        } else {
-          lastSavedSource.current = v;
+          lastSavedSource.current = mergedSource;
+          sourceRef.current = mergedSource;
+          setSource(mergedSource);
+          setSavedMsg('Merged external changes');
+          return;
         }
+        lastSavedSource.current = v;
         setSavedMsg(result.changed ? 'Autosaved ' + (result.commit ?? '').slice(0, 7) : 'No changes');
       } catch (e) {
         setSavedMsg('Autosave failed: ' + String(e));
@@ -561,7 +593,7 @@ function App() {
     await window.tributary.createWorkItem({ title: newTitle.trim() });
     setNewTitle('');
     await loadWorkItems();
-    setDocs(await window.tributary.listDocuments());
+    applyDocs(await window.tributary.listDocuments());
   };
 
   const createProblemItem = async (): Promise<void> => {
@@ -569,13 +601,14 @@ function App() {
     await window.tributary.createProblem(newProblem.trim());
     setNewProblem('');
     await loadWorkItems();
-    setDocs(await window.tributary.listDocuments());
+    applyDocs(await window.tributary.listDocuments());
   };
 
   const updateCell = async (cell: Cell, source: string): Promise<void> => {
     const owner = cellOwnerRef.current.get(cell);
-    const idx = cellsRef.current.indexOf(cell);
-    if (!owner || idx < 0) return;
+    if (!owner) return;
+    const entry = hostsRef.current.get(owner.docId);
+    if (!entry) return;
     const result = await window.tributary.updateCell(owner.docId, owner.index, source, cell.lang);
     // The service reparses after the cell write; keep the open document's source
     // and baseline in step so a later checkpoint cannot undo the cell edit.
@@ -584,13 +617,14 @@ function App() {
       lastSavedSource.current = result.document.source ?? lastSavedSource.current;
       sourceRef.current = result.document.source ?? sourceRef.current;
       setSource(result.document.source ?? '');
+      cellsRef.current = collectOwnCells(result.document);
     }
-    const host = hostRef.current;
-    if (!host) return;
-    const outs = await host.update(idx, result.compiled, rendererContext());
-    const map = new Map<Cell, CellRenderResult>();
-    cellsRef.current.forEach((c, i) => map.set(c, outputToNode(outs[i])));
-    setCellResults(map);
+    const outs = await entry.host.update(owner.index, result.compiled, rendererContext());
+    setCellResults((prev) => {
+      const next = new Map(prev);
+      entry.cells.forEach((c, i) => next.set(c, outputToNode(outs[i])));
+      return next;
+    });
   };
 
   const onSync = async (): Promise<void> => {
@@ -608,7 +642,7 @@ function App() {
     setRenameOpen(false);
     await load(current.id);
     await loadWorkItems();
-    setDocs(await window.tributary.listDocuments());
+    applyDocs(await window.tributary.listDocuments());
   };
 
   const refreshJobBranches = async (): Promise<void> => {
@@ -635,7 +669,7 @@ function App() {
       setReportDiff('');
       await refreshJobBranches();
       await loadWorkItems();
-      setDocs(await window.tributary.listDocuments());
+      applyDocs(await window.tributary.listDocuments());
     } catch (e) {
       setReportStatus('Merge failed: ' + String(e));
     }
@@ -644,7 +678,7 @@ function App() {
   const cellResolver: CellResolver = {
     resolve: (cell) => cellResults.get(cell),
     update: updateCell,
-    indexOf: (cell) => cellsRef.current.indexOf(cell),
+    indexOf: (cell) => cellOwnerRef.current.get(cell)?.index ?? -1,
   };
 
   // In-place block editing: splice the edited Markdown back into the document
@@ -661,7 +695,7 @@ function App() {
       try {
         const result = await window.tributary.saveDocument(updated, 'edit block');
         setSavedMsg(result.changed ? 'Saved ' + (result.commit ?? '').slice(0, 7) : 'No changes');
-        setDocs(await window.tributary.listDocuments());
+        applyDocs(await window.tributary.listDocuments());
         if (current) await load(current.id);
       } catch (e) {
         setSavedMsg('Edit failed: ' + String(e));

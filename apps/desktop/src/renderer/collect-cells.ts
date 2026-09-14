@@ -1,9 +1,9 @@
 import type { Cell, Document } from '@tributary/api';
 
-/** Resolve a transclusion target (optionally a heading section) to a document. */
-export type TransclusionLookup = (target: string, heading?: string) => Document | undefined;
+/** Resolve a transclusion target to a full document (heading section ignored). */
+export type TransclusionLookup = (target: string) => Document | undefined;
 
-/** A cell plus the document and index it belongs to. */
+/** A cell plus the document and local index it belongs to. */
 export interface CollectedCell {
   cell: Cell;
   /** Id of the document that owns the cell. */
@@ -15,43 +15,42 @@ export interface CollectedCell {
 /** Mirrors the render-time guard in @tributary/components. */
 const MAX_EMBED_DEPTH = 12;
 
-/**
- * Collect every executable cell reachable from `doc`, expanding `![[…]]`
- * transclusions in document (render) order. Cells reached through an embed are
- * tagged with their owning document and local index, so an edit can be routed
- * back to the right document and `replaceCellSource` argument. A cell that
- * appears through more than one embed is collected once.
- */
-export function collectCells(doc: Document, lookup?: TransclusionLookup): CollectedCell[] {
-  const out: CollectedCell[] = [];
-  const seen = new Set<Cell>();
-
-  const walkDoc = (d: Document, chain: string[]): void => {
-    let index = 0;
-    const visit = (n: unknown): void => {
-      const node = n as { type?: string; children?: unknown[]; target?: string; heading?: string };
-      if (node.type === 'cell') {
-        const cell = node as unknown as Cell;
-        if (!seen.has(cell)) {
-          seen.add(cell);
-          out.push({ cell, docId: d.id, index });
-        }
-        index++;
-        return;
-      }
-      if (node.type === 'transclusion' && lookup && typeof node.target === 'string') {
-        const target = lookup(node.target, node.heading);
-        if (target && !chain.includes(target.id) && chain.length < MAX_EMBED_DEPTH) {
-          walkDoc(target, [...chain, target.id]);
-        }
-        return;
-      }
-      if (node.children) for (const c of node.children) visit(c);
-    };
-    visit(d.root);
+/** Cells declared directly in one document, in document order. */
+export function collectOwnCells(doc: Document): Cell[] {
+  const out: Cell[] = [];
+  const walk = (n: unknown): void => {
+    const node = n as { type?: string; children?: unknown[] };
+    if (node.type === 'cell') out.push(node as unknown as Cell);
+    if (node.children) for (const c of node.children) walk(c);
   };
+  walk(doc.root);
+  return out;
+}
 
-  // Match @tributary/components: the top-level render chain starts at 'doc'.
-  walkDoc(doc, ['doc']);
+/**
+ * The host document plus every document reachable through `![[…]]`, each once
+ * and depth/cycle guarded. Only full documents are returned, so a cell reached
+ * through a heading section still maps back to its owning document (and its
+ * full-document index).
+ */
+export function reachableDocuments(host: Document, lookup: TransclusionLookup): Document[] {
+  const out: Document[] = [];
+  const seen = new Set<string>();
+  const visit = (doc: Document, depth: number): void => {
+    if (seen.has(doc.id)) return;
+    seen.add(doc.id);
+    out.push(doc);
+    if (depth >= MAX_EMBED_DEPTH) return;
+    const walk = (n: unknown): void => {
+      const node = n as { type?: string; children?: unknown[]; target?: string };
+      if (node.type === 'transclusion' && typeof node.target === 'string') {
+        const target = lookup(node.target);
+        if (target) visit(target, depth + 1);
+      }
+      if (node.children) for (const c of node.children) walk(c);
+    };
+    walk(doc.root);
+  };
+  visit(host, 0);
   return out;
 }

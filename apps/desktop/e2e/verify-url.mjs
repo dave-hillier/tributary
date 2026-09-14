@@ -63,6 +63,19 @@ try {
   await page.waitForFunction(() => location.hash.startsWith('#/doc/'), { timeout: 5000 });
   check('initial URL carries the document path', (await hashOf()) === '#/doc/index.md', await hashOf());
 
+  // Finding 5: cells reached through a transclusion evaluate (not stuck pending).
+  const cellCount = await page.locator('figure[data-cell]').count();
+  const pendingCells = await page.locator('figure[data-cell][data-status="pending"]').count();
+  check('transcluded cells evaluate', cellCount === 5 && pendingCells === 0, 'cells=' + cellCount + ' pending=' + pendingCells);
+
+  // Finding 7: the sidebar labels a project by its canonical type.
+  const projectLabel = await page
+    .locator('[data-tree] a')
+    .filter({ hasText: 'Demo Project' })
+    .locator('small[data-status]')
+    .innerText();
+  check('kindLabel reads the canonical type', projectLabel === 'project', projectLabel);
+
   await page.getByRole('button', { name: 'board', exact: true }).click();
   await page.waitForFunction(() => location.hash.startsWith('#/board'), { timeout: 5000 });
   check('board view in URL', (await hashOf()) === '#/board', await hashOf());
@@ -75,6 +88,20 @@ try {
   await page.locator('[data-tree] a').filter({ hasText: 'Hello' }).first().click();
   await page.waitForFunction(() => location.hash.startsWith('#/doc/'), { timeout: 5000 });
   check('sidebar navigation updates the document path', (await hashOf()) === '#/doc/notes/hello.md', await hashOf());
+
+  // Finding 1: the debounced autosave persists the final keystroke.
+  await page.getByRole('button', { name: 'source', exact: true }).click();
+  await page.waitForSelector('.cm-content', { timeout: 8000 });
+  await page.locator('.cm-content').click();
+  await page.keyboard.press('Meta+A');
+  await page.keyboard.type('# Hello\n\nAUTOSAVE-OK-Z');
+  await page.waitForTimeout(2200);
+  const saved = service.getDocument('notes/hello');
+  check(
+    'autosave persisted the final keystroke',
+    !!saved && typeof saved.source === 'string' && saved.source.includes('AUTOSAVE-OK-Z'),
+    saved && saved.source ? 'len=' + saved.source.length : 'missing',
+  );
 
   // Fresh load on a filtered board URL: the filter must be restored from the URL.
   await page.goto(base + '#/board?status=doing&label=release');
