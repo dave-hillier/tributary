@@ -68,6 +68,11 @@ try {
   const pendingCells = await page.locator('figure[data-cell][data-status="pending"]').count();
   check('transcluded cells evaluate', cellCount === 5 && pendingCells === 0, 'cells=' + cellCount + ' pending=' + pendingCells);
 
+  // Stage 2 blocks render: a callout and a resolved query block.
+  const callouts = await page.locator('[data-callout]').count();
+  const queryHits = await page.locator('[data-query] a').count();
+  check('callout + query blocks render', callouts >= 1 && queryHits >= 1, 'callouts=' + callouts + ' queryHits=' + queryHits);
+
   // Finding 7: the sidebar labels a project by its canonical type.
   const projectLabel = await page
     .locator('[data-tree] a')

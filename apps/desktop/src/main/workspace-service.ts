@@ -3,13 +3,13 @@ import { randomUUID } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Workspace, createDemoWorkspace, type CommitInfo } from '@tributary/workspace';
+import { Workspace, createDemoWorkspace, MergeConflictError, type CommitInfo } from '@tributary/workspace';
 import { SqliteIndex } from '@tributary/index';
-import { parseMarkdown, updateFrontmatter, replaceCellSource } from '@tributary/markdown';
+import { parseMarkdown, parseFrontmatter, updateFrontmatter, replaceCellSource } from '@tributary/markdown';
 import { compileReactiveCellAsync, type CompiledReactiveCell, type CellLanguage, type ResolveOptions } from '@tributary/notebook';
 import { runJob, weeklyReport, type RunJobOutcome } from '@tributary/jobs';
 import type { Document, DocumentId, NewWorkItem, WorkItem } from '@tributary/api';
-import { formatRef, parseRef, type Diagnostic } from '@tributary/ontology';
+import { documentType, formatRef, parseRef, type Diagnostic } from '@tributary/ontology';
 
 /**
  * Shell-side workspace service: owns the open workspace and its derived index,
@@ -90,18 +90,37 @@ export class WorkspaceService {
 
   async saveDocument(
     doc: Document,
-    message?: string
-  ): Promise<{ commit: string | null; changed: boolean; document?: Document; merged: boolean }> {
+    message?: string,
+    force = false
+  ): Promise<{
+    commit: string | null;
+    changed: boolean;
+    document?: Document;
+    merged: boolean;
+    /** True when a stale base produced an unresolved three-way merge. */
+    conflict: boolean;
+    /** The merge with conflict markers, for the interactive resolver. */
+    conflicted?: string;
+  }> {
     const workspace = this.workspace;
     const index = this.index;
     if (!workspace || !index) throw new Error('Workspace not open');
-    const result = await workspace.save(doc, message);
-    // Per-document invalidation: the workspace already re-parsed the saved doc;
-    // just rebuild the in-memory index from the (updated) documents array.
-    if (result.changed) {
-      index.rebuild(workspace.documents);
+    try {
+      const result = await workspace.save(doc, message, { force });
+      // Per-document invalidation: the workspace already re-parsed the saved doc;
+      // just rebuild the in-memory index from the (updated) documents array.
+      if (result.changed) {
+        index.rebuild(workspace.documents);
+      }
+      return { ...result, conflict: false };
+    } catch (e) {
+      // Surface the conflict as data so the renderer can offer a resolver
+      // instead of showing an opaque save failure.
+      if (e instanceof MergeConflictError) {
+        return { commit: null, changed: false, merged: false, conflict: true, conflicted: e.conflicted };
+      }
+      throw e;
     }
-    return result;
   }
 
   async history(id: DocumentId): Promise<CommitInfo[]> {
@@ -171,6 +190,7 @@ export class WorkspaceService {
     const newFullSource = replaceCellSource(doc.source, cellIndex, source);
     const updatedDoc = parseMarkdown(newFullSource, { path: doc.path });
     const result = await this.saveDocument(updatedDoc, 'edit cell');
+    if (result.conflict) throw new Error('Merge conflict while saving the cell edit');
     return {
       compiled: await compileReactiveCellAsync(source, lang as CellLanguage, this.resolveOptions()),
       document: result.document ?? workspace.getDocument(docId) ?? updatedDoc,
@@ -206,31 +226,55 @@ export class WorkspaceService {
     return workspace.getDocument(id)!;
   }
 
+  /** Documents that act as creation templates (frontmatter `type: template`). */
+  listTemplates(): Document[] {
+    return (this.workspace?.documents ?? []).filter((d) => documentType(d.frontmatter) === 'template');
+  }
+
+  private findTemplate(ref: string): Document | undefined {
+    return this.listTemplates().find(
+      (d) =>
+        d.id === ref ||
+        d.path === ref ||
+        d.path.replace(/\.md$/, '') === ref ||
+        d.frontmatter.title === ref
+    );
+  }
+
   /**
    * Create a work item in the canonical ontology (ADR-005): `type`, an
    * `assignees` list of typed refs and a numeric priority. Deprecated spellings
-   * are never written, so new documents need no migration.
+   * are never written, so new documents need no migration. A selected
+   * `template` document seeds frontmatter defaults and the body (with
+   * `{{title}}` substituted).
    */
   async createWorkItem(input: NewWorkItem): Promise<Document> {
     const workspace = this.workspace;
     const index = this.index;
     if (!workspace || !index) throw new Error('Workspace not open');
+    const template = input.template ? this.findTemplate(input.template) : undefined;
+    const tpl = template?.frontmatter ?? {};
     const id = randomUUID();
     const path = 'items/' + id + '.md';
-    const fm: Record<string, unknown> = {
-      id,
-      type: 'work-item',
-      title: input.title,
-      status: input.status ?? 'todo',
-    };
-    const assignees = (input.assignees ?? []).filter((a) => a.trim() !== '');
+    const status = input.status ?? (typeof tpl.status === 'string' ? tpl.status : undefined) ?? 'todo';
+    const fm: Record<string, unknown> = { id, type: 'work-item', title: input.title, status };
+    const tplAssignees = Array.isArray(tpl.assignees) ? tpl.assignees.map((a) => String(a)) : [];
+    const assignees = (input.assignees ?? tplAssignees).filter((a) => a.trim() !== '');
     if (assignees.length > 0) fm.assignees = assignees.map((a) => formatRef(parseRef(a, 'user')));
-    if (input.priority !== undefined) fm.priority = input.priority;
+    const priority = input.priority ?? (typeof tpl.priority === 'number' ? tpl.priority : undefined);
+    if (priority !== undefined) fm.priority = priority;
     if (input.project) fm.project = input.project;
     if (input.problem) fm.problem = input.problem;
-    if (input.labels && input.labels.length > 0) fm.labels = input.labels;
+    const labels = input.labels && input.labels.length > 0 ? input.labels : Array.isArray(tpl.labels) ? tpl.labels.map((l) => String(l)) : [];
+    if (labels.length > 0) fm.labels = labels;
     if (input.due) fm.due = input.due;
-    const source = updateFrontmatter('# ' + input.title + '\n', fm);
+    if (template) fm.template = template.id;
+    let body = '# ' + input.title + '\n';
+    if (template?.source) {
+      const tplBody = parseFrontmatter(template.source).body.replace(/^\n+/, '');
+      body = tplBody.includes('{{title}}') ? tplBody.replace(/\{\{title\}\}/g, input.title) : '# ' + input.title + '\n\n' + tplBody;
+    }
+    const source = updateFrontmatter(body, fm);
     const doc = parseMarkdown(source, { path });
     await workspace.save(doc, 'create work item ' + input.title);
     index.rebuild(workspace.documents);

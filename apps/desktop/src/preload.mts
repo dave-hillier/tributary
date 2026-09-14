@@ -13,11 +13,19 @@ interface HistoryEntry {
 const api = {
   getDocument: (id: string): Promise<Document | null> => ipcRenderer.invoke('workspace:getDocument', id),
   listDocuments: (): Promise<Document[]> => ipcRenderer.invoke('workspace:listDocuments'),
+  listTemplates: (): Promise<Document[]> => ipcRenderer.invoke('workspace:listTemplates'),
   saveDocument: (
     doc: Document,
-    message?: string
-  ): Promise<{ commit: string | null; changed: boolean; document?: Document; merged: boolean }> =>
-    ipcRenderer.invoke('workspace:saveDocument', doc, message),
+    message?: string,
+    force?: boolean
+  ): Promise<{
+    commit: string | null;
+    changed: boolean;
+    document?: Document;
+    merged: boolean;
+    conflict: boolean;
+    conflicted?: string;
+  }> => ipcRenderer.invoke('workspace:saveDocument', doc, message, force),
   history: (id: string): Promise<HistoryEntry[]> => ipcRenderer.invoke('workspace:history', id),
   resolveLink: (target: string): Promise<Document | null> => ipcRenderer.invoke('workspace:resolveLink', target),
   backlinks: (id: string): Promise<Document[]> => ipcRenderer.invoke('workspace:backlinks', id),

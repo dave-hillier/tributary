@@ -122,7 +122,8 @@ export class Workspace {
   /** Write a document and record a semantic checkpoint commit (skips no-ops). */
   async save(
     doc: Document,
-    message?: string
+    message?: string,
+    options: { force?: boolean } = {}
   ): Promise<{ commit: string | null; changed: boolean; document?: Document; merged: boolean }> {
     const abs = join(this.ref.rootPath, doc.path);
     let newSource = doc.source ?? stringifyMarkdown(doc);
@@ -142,7 +143,10 @@ export class Workspace {
     // clobbering; surface conflicts rather than losing either side.
     let merged = false;
     const base = this.baseBlobs.get(doc.id);
-    if (base) {
+    // `force` writes the user-resolved text verbatim: it is used after an
+    // interactive conflict resolution, where re-merging would re-introduce the
+    // conflict markers the user just edited away.
+    if (!options.force && base) {
       let headBlob: string | null = null;
       try {
         headBlob = git(this.ref.rootPath, ['rev-parse', 'HEAD:' + doc.path]);

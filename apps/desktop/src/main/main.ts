@@ -79,7 +79,8 @@ app.whenReady().then(async () => {
 
   ipcMain.handle('workspace:getDocument', (_evt, id: string) => service.getDocument(id));
   ipcMain.handle('workspace:listDocuments', () => service.listDocuments());
-  ipcMain.handle('workspace:saveDocument', (_evt, doc: Document, message?: string) => service.saveDocument(doc, message));
+  ipcMain.handle('workspace:listTemplates', () => service.listTemplates());
+  ipcMain.handle('workspace:saveDocument', (_evt, doc: Document, message?: string, force?: boolean) => service.saveDocument(doc, message, force));
   ipcMain.handle('workspace:history', (_evt, id: string) => service.history(id));
   ipcMain.handle('workspace:resolveLink', (_evt, target: string) => service.resolveLink(target));
   ipcMain.handle('workspace:backlinks', (_evt, id: string) => service.backlinks(id));

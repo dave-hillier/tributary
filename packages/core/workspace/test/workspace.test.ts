@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { mkdtempSync, rmSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
-import { Workspace, deriveId } from '../src/index.js';
+import { Workspace, deriveId, DEMO_FILES } from '../src/index.js';
 import { createDemoWorkspace } from '../src/index.js';
 import { git } from '../src/git.js';
 import { parseMarkdown } from '@tributary/markdown';
@@ -23,7 +23,7 @@ describe('Workspace (real temp Git repo)', () => {
     const root = tempDir();
     try {
       const ws = await createDemoWorkspace(root);
-      expect(ws.documents.length).toBe(7);
+      expect(ws.documents.length).toBe(Object.keys(DEMO_FILES).length);
       expect(ws.duplicateIds).toEqual([]);
       expect(ws.getDocument('task-1')?.frontmatter.type).toBe('work-item');
       expect(ws.getDocument('notes/hello')?.frontmatter.type).toBe('wiki');
@@ -230,6 +230,26 @@ describe('Workspace (real temp Git repo)', () => {
       const final = readFileSync(join(root, 'notes/hello.md'), 'utf8');
       expect(final).toContain('# Hello (theirs)');
       expect(final).toContain('A simple wiki document (ours)');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('force-saves a user-resolved conflict without re-merging', async () => {
+    const root = tempDir();
+    try {
+      const ws = await createDemoWorkspace(root);
+      const doc = ws.getDocument('notes/hello')!;
+      // External same-line edit → a conflicting save, then a resolved force-save.
+      writeFileSync(join(root, 'notes/hello.md'), doc.source!.replace('# Hello', '# Hello (theirs)'));
+      git(root, ['add', 'notes/hello.md']);
+      git(root, ['commit', '-q', '-m', 'external edit']);
+      doc.source = doc.source!.replace('# Hello', '# Hello (ours)');
+      await expect(ws.save(doc, 'our edit')).rejects.toThrow(/Merge conflict/);
+      doc.source = doc.source!.replace('# Hello (ours)', '# Hello (resolved)');
+      const result = await ws.save(doc, 'resolve conflict', { force: true });
+      expect(result.changed).toBe(true);
+      expect(readFileSync(join(root, 'notes/hello.md'), 'utf8')).toContain('# Hello (resolved)');
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

@@ -1,8 +1,14 @@
 import React, { StrictMode, Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent, MouseEvent, ReactElement } from 'react';
 import { createRoot } from 'react-dom/client';
-import { DocumentView, CellContext, TransclusionContext, EditContext } from '@tributary/components';
-import type { CellResolver, CellRenderResult, TransclusionResolver, EditResolver } from '@tributary/components';
+import { DocumentView, CellContext, TransclusionContext, QueryContext, EditContext } from '@tributary/components';
+import type {
+  CellResolver,
+  CellRenderResult,
+  TransclusionResolver,
+  QueryResolver,
+  EditResolver,
+} from '@tributary/components';
 import { ReactiveHost } from '@tributary/notebook/runtime';
 import type { CompiledReactiveCell } from '@tributary/notebook/runtime';
 import type { RunJobOutcome } from '@tributary/jobs';
@@ -37,12 +43,17 @@ interface SaveResult {
   document?: Document;
   /** True when a stale base was resolved by three-way merge. */
   merged: boolean;
+  /** True when a stale base produced an unresolved conflict to resolve in the UI. */
+  conflict: boolean;
+  /** The merge with conflict markers, for the interactive resolver. */
+  conflicted?: string;
 }
 
 interface TributaryApi {
   getDocument: (id: string) => Promise<Document | null>;
   listDocuments: () => Promise<Document[]>;
-  saveDocument: (doc: Document, message?: string) => Promise<SaveResult>;
+  listTemplates: () => Promise<Document[]>;
+  saveDocument: (doc: Document, message?: string, force?: boolean) => Promise<SaveResult>;
   history: (id: string) => Promise<HistoryEntry[]>;
   resolveLink: (target: string) => Promise<Document | null>;
   backlinks: (id: string) => Promise<Document[]>;
@@ -241,10 +252,13 @@ function App() {
   const [source, setSource] = useState('');
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [savedMsg, setSavedMsg] = useState('');
+  const [mergeConflict, setMergeConflict] = useState(false);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<Document[]>([]);
   const [workItems, setWorkItems] = useState<WorkItem[]>([]);
   const [newTitle, setNewTitle] = useState('');
+  const [templates, setTemplates] = useState<Document[]>([]);
+  const [templateId, setTemplateId] = useState('');
   const [newProblem, setNewProblem] = useState('');
   const [renamePath, setRenamePath] = useState('');
   const [renameOpen, setRenameOpen] = useState(false);
@@ -276,6 +290,7 @@ function App() {
   const currentRef = useRef<Document | null>(null);
   const lastSavedSource = useRef('');
   const sourceRef = useRef('');
+  const conflictRef = useRef<string | null>(null);
   const cellOwnerRef = useRef<Map<Cell, CollectedCell>>(new Map());
   // URL routing: whether a fetch is in flight (suppress a stale path write), the
   // latest loader for popstate, the route currently being applied from the URL,
@@ -315,6 +330,44 @@ function App() {
     query: (q: string) => window.tributary.search(q),
   };
   const rendererContext = () => ({ React, api: rendererApi, components: {} });
+
+  /**
+   * Shell-side query resolver: a query block's body is lines of `key: value`
+   * frontmatter matches (a bare line matches title/path). It reads the canonical
+   * document snapshot, so it always reflects the loaded workspace.
+   */
+  const queryResolver: QueryResolver = {
+    run: (text) => {
+      const criteria = text
+        .split('\n')
+        .map((l) => l.trim())
+        .filter((l) => l !== '' && !l.startsWith('#'))
+        .map((line) => {
+          const colon = line.indexOf(':');
+          return colon < 0
+            ? { key: '', value: line }
+            : { key: line.slice(0, colon).trim(), value: line.slice(colon + 1).trim() };
+        })
+        .filter((c) => c.value !== '');
+      const matches = (d: Document): boolean =>
+        criteria.every(({ key, value }) => {
+          const want = value.toLowerCase();
+          if (key === '') {
+            return (
+              (d.frontmatter.title ?? d.id).toLowerCase().includes(want) ||
+              d.path.toLowerCase().includes(want)
+            );
+          }
+          const raw = (d.frontmatter as Record<string, unknown>)[key];
+          if (raw == null) return false;
+          if (Array.isArray(raw)) return raw.some((x) => String(x).toLowerCase() === want);
+          return String(raw).toLowerCase() === want;
+        });
+      return dataRef.current.docs
+        .filter(matches)
+        .map((d) => ({ title: d.frontmatter.title ?? d.id, path: d.path, href: documentHref(d.path) }));
+    },
+  };
 
   /**
    * Compile and evaluate each reachable document in its OWN reactive scope, so
@@ -359,6 +412,8 @@ function App() {
   const load = async (id: string): Promise<void> => {
     // A pending autosave belongs to the document being left, not the next one.
     autosaveRef.current?.cancel();
+    conflictRef.current = null;
+    setMergeConflict(false);
     setLoading(true);
     try {
       const d = await window.tributary.getDocument(id);
@@ -423,6 +478,7 @@ function App() {
       if (home) await load(home.id);
       await loadWorkItems();
       setJobBranches(await window.tributary.listJobBranches().catch(() => []));
+      setTemplates(await window.tributary.listTemplates().catch(() => []));
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -492,15 +548,50 @@ function App() {
     };
   }, []);
 
+  /** Surface an unresolved merge: show the markers and park autosave. */
+  const enterConflict = (conflicted: string): void => {
+    conflictRef.current = conflicted;
+    setMergeConflict(true);
+    sourceRef.current = conflicted;
+    lastSavedSource.current = conflicted;
+    setSource(conflicted);
+    setPane('source');
+    setSavedMsg('Merge conflict — edit the markers, then resolve & save');
+  };
+
   const onSave = async (): Promise<void> => {
     if (!current) return;
     try {
       const result = await window.tributary.saveDocument({ ...current, source }, 'edit from UI');
+      if (result.conflict) {
+        enterConflict(result.conflicted ?? source);
+        return;
+      }
       lastSavedSource.current = source;
       setSavedMsg(result.changed ? 'Saved ' + (result.commit ?? '').slice(0, 7) : 'No changes');
       await load(current.id);
     } catch (e) {
       setSavedMsg('Save failed: ' + String(e));
+    }
+  };
+
+  /** Force-save the user-resolved text after a conflict (skips re-merging). */
+  const onResolve = async (): Promise<void> => {
+    if (!current) return;
+    try {
+      const result = await window.tributary.saveDocument({ ...current, source }, 'resolve conflict', true);
+      if (result.conflict) {
+        setSavedMsg('Still conflicting — check the markers');
+        return;
+      }
+      conflictRef.current = null;
+      setMergeConflict(false);
+      lastSavedSource.current = source;
+      sourceRef.current = source;
+      setSavedMsg(result.changed ? 'Resolved ' + (result.commit ?? '').slice(0, 7) : 'No changes');
+      await load(current.id);
+    } catch (e) {
+      setSavedMsg('Resolve failed: ' + String(e));
     }
   };
 
@@ -510,10 +601,16 @@ function App() {
   // the user navigates, so it can never write one document's text to another.
   const autosaveSave = (v: string): void => {
     const doc = currentRef.current;
-    if (!doc || v === lastSavedSource.current) return;
+    // Park autosave while an unresolved merge is on screen.
+    if (!doc || conflictRef.current || v === lastSavedSource.current) return;
     void (async () => {
       try {
         const result = await window.tributary.saveDocument({ ...doc, source: v }, 'autosave');
+        if (result.conflict) {
+          autosaveRef.current?.cancel();
+          enterConflict(result.conflicted ?? v);
+          return;
+        }
         if (result.merged && result.document) {
           // Never silently discard a three-way merge. The merged text becomes
           // the baseline and the visible source, and a save still pending from
@@ -590,7 +687,10 @@ function App() {
 
   const createItem = async (): Promise<void> => {
     if (!newTitle.trim()) return;
-    await window.tributary.createWorkItem({ title: newTitle.trim() });
+    await window.tributary.createWorkItem({
+      title: newTitle.trim(),
+      template: templateId || undefined,
+    });
     setNewTitle('');
     await loadWorkItems();
     applyDocs(await window.tributary.listDocuments());
@@ -609,22 +709,26 @@ function App() {
     if (!owner) return;
     const entry = hostsRef.current.get(owner.docId);
     if (!entry) return;
-    const result = await window.tributary.updateCell(owner.docId, owner.index, source, cell.lang);
-    // The service reparses after the cell write; keep the open document's source
-    // and baseline in step so a later checkpoint cannot undo the cell edit.
-    if (owner.docId === currentRef.current?.id) {
-      currentRef.current = result.document;
-      lastSavedSource.current = result.document.source ?? lastSavedSource.current;
-      sourceRef.current = result.document.source ?? sourceRef.current;
-      setSource(result.document.source ?? '');
-      cellsRef.current = collectOwnCells(result.document);
+    try {
+      const result = await window.tributary.updateCell(owner.docId, owner.index, source, cell.lang);
+      // The service reparses after the cell write; keep the open document's source
+      // and baseline in step so a later checkpoint cannot undo the cell edit.
+      if (owner.docId === currentRef.current?.id) {
+        currentRef.current = result.document;
+        lastSavedSource.current = result.document.source ?? lastSavedSource.current;
+        sourceRef.current = result.document.source ?? sourceRef.current;
+        setSource(result.document.source ?? '');
+        cellsRef.current = collectOwnCells(result.document);
+      }
+      const outs = await entry.host.update(owner.index, result.compiled, rendererContext());
+      setCellResults((prev) => {
+        const next = new Map(prev);
+        entry.cells.forEach((c, i) => next.set(c, outputToNode(outs[i])));
+        return next;
+      });
+    } catch (e) {
+      setSavedMsg('Cell save failed: ' + String(e));
     }
-    const outs = await entry.host.update(owner.index, result.compiled, rendererContext());
-    setCellResults((prev) => {
-      const next = new Map(prev);
-      entry.cells.forEach((c, i) => next.set(c, outputToNode(outs[i])));
-      return next;
-    });
   };
 
   const onSync = async (): Promise<void> => {
@@ -694,6 +798,10 @@ function App() {
       }
       try {
         const result = await window.tributary.saveDocument(updated, 'edit block');
+        if (result.conflict) {
+          enterConflict(result.conflicted ?? updated.source ?? '');
+          return;
+        }
         setSavedMsg(result.changed ? 'Saved ' + (result.commit ?? '').slice(0, 7) : 'No changes');
         applyDocs(await window.tributary.listDocuments());
         if (current) await load(current.id);
@@ -1134,6 +1242,20 @@ function App() {
           </nav>
 
           <div data-new-item>
+            {templates.length > 0 ? (
+              <select
+                aria-label="new work item template"
+                value={templateId}
+                onChange={(e) => setTemplateId(e.target.value)}
+              >
+                <option value="">no template</option>
+                {templates.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {titleOf(t)}
+                  </option>
+                ))}
+              </select>
+            ) : null}
             <input
               placeholder="new work item…"
               value={newTitle}
@@ -1326,9 +1448,11 @@ function App() {
                     <div data-doc={current.id} onClick={onDocClick}>
                       <CellContext.Provider value={cellResolver}>
                         <TransclusionContext.Provider value={transclusionResolver}>
-                          <EditContext.Provider value={editResolver}>
-                            <DocumentView document={current} />
-                          </EditContext.Provider>
+                          <QueryContext.Provider value={queryResolver}>
+                            <EditContext.Provider value={editResolver}>
+                              <DocumentView document={current} />
+                            </EditContext.Provider>
+                          </QueryContext.Provider>
                         </TransclusionContext.Provider>
                       </CellContext.Provider>
                     </div>
@@ -1339,7 +1463,13 @@ function App() {
                       <div data-editor-head>
                         <span>source · {current.path}</span>
                         <span data-editor-actions>
+                          {mergeConflict ? <span data-conflict>merge conflict</span> : null}
                           <span data-status={dirty ? 'unsaved' : undefined}>{saveState}</span>
+                          {mergeConflict ? (
+                            <button data-conflict-resolve onClick={() => void onResolve()}>
+                              resolve &amp; save
+                            </button>
+                          ) : null}
                           <button onClick={() => void onSave()}>checkpoint ⌘S</button>
                         </span>
                       </div>
